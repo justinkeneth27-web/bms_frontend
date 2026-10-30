@@ -1,0 +1,6 @@
+{
+  "name": "Barangay Emergency Disaster and Household Response System",
+  "description": "Disaster monitoring and household response dashboard for Barangay Buang and Barangay Nagsipit featuring secure official logins, household status reporting, real-time alert levels (Red/Yellow/Green), map pin tracking, evacuation capacity management, and relief distribution.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

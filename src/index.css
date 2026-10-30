@@ -1,0 +1,529 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Isolate Leaflet map stacking context so it never renders over sidebars, navigation, or modals */
+.leaflet-container {
+  isolation: isolate;
+  z-index: 0 !important;
+}
+
+/* ==========================================================================
+   EXECUTIVE DARK MODE ARCHITECTURE
+   Tailored for High-Density Operations Console & Disaster Response Portal
+   ========================================================================== */
+
+html.dark,
+body.dark,
+.dark {
+  color-scheme: dark;
+}
+
+.dark body,
+body.dark {
+  background-color: #080c14;
+  color: #f1f5f9;
+}
+
+/* 1. Surfaces & Elevations */
+.dark .bg-white {
+  background-color: #0c1322 !important;
+}
+
+.dark .bg-slate-50 {
+  background-color: #080c14 !important;
+}
+
+.dark .bg-slate-50\/50,
+.dark .bg-slate-50\/60,
+.dark .bg-slate-50\/70,
+.dark .bg-slate-50\/80,
+.dark .bg-slate-50\/90 {
+  background-color: rgba(12, 19, 34, 0.75) !important;
+}
+
+.dark .bg-slate-100 {
+  background-color: #151f33 !important;
+}
+
+.dark .bg-slate-100\/50,
+.dark .bg-slate-100\/60,
+.dark .bg-slate-100\/70,
+.dark .bg-slate-100\/80,
+.dark .bg-slate-100\/90,
+.dark .bg-slate-100\/95 {
+  background-color: rgba(21, 31, 51, 0.95) !important;
+}
+
+.dark header.bg-white,
+.dark header {
+  background-color: #090e1a !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 2. Seamless Borders & Dividers */
+.dark .border-slate-100 {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark .border-slate-200,
+.dark .border-slate-200\/80,
+.dark .border-slate-200\/90 {
+  border-color: rgba(255, 255, 255, 0.09) !important;
+}
+
+.dark .border-slate-300,
+.dark .border-slate-300\/50,
+.dark .border-slate-300\/80 {
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 3. Typography & Hierarchy (Crystal Clear Contrast on Dark Surfaces) */
+.dark .text-slate-900 {
+  color: #f8fafc !important;
+}
+
+.dark .text-slate-800 {
+  color: #f1f5f9 !important;
+}
+
+.dark .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+
+.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+.dark .text-slate-500 {
+  color: #cbd5e1 !important;
+}
+
+.dark .text-slate-400 {
+  color: #cbd5e1 !important;
+}
+
+.dark .text-slate-300 {
+  color: #e2e8f0 !important;
+}
+
+.dark .text-slate-200 {
+  color: #f1f5f9 !important;
+}
+
+.dark .text-slate-100 {
+  color: #f8fafc !important;
+}
+
+/* 4. Professional Badge, Pill & Alert Panel Treatments */
+/* Emerald / Safe */
+.dark .bg-emerald-50,
+.dark .bg-emerald-50\/50,
+.dark .bg-emerald-100,
+.dark .bg-emerald-100\/60,
+.dark .bg-emerald-100\/90 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.32) !important;
+}
+.dark .text-emerald-600,
+.dark .text-emerald-700,
+.dark .text-emerald-800,
+.dark .text-emerald-900,
+.dark .text-green-500,
+.dark .text-green-600 {
+  color: #34d399 !important;
+}
+.dark .border-emerald-200,
+.dark .border-emerald-300 {
+  border-color: rgba(16, 185, 129, 0.28) !important;
+}
+
+/* Amber / Moderate / Warning */
+.dark .bg-amber-50,
+.dark .bg-amber-50\/50,
+.dark .bg-amber-100,
+.dark .bg-amber-100\/60,
+.dark .bg-amber-100\/90 {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border-color: rgba(245, 158, 11, 0.32) !important;
+}
+.dark .text-amber-500,
+.dark .text-amber-600,
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-amber-900,
+.dark .text-amber-950 {
+  color: #fbbf24 !important;
+}
+.dark .border-amber-200,
+.dark .border-amber-300 {
+  border-color: rgba(245, 158, 11, 0.28) !important;
+}
+
+/* Red / Emergency / Critical */
+.dark .bg-red-50,
+.dark .bg-red-50\/50,
+.dark .bg-red-100,
+.dark .bg-red-100\/60,
+.dark .bg-red-100\/90,
+.dark .bg-rose-50,
+.dark .bg-rose-100 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.32) !important;
+}
+.dark .text-red-600,
+.dark .text-red-700,
+.dark .text-red-800,
+.dark .text-red-900,
+.dark .text-red-950,
+.dark .text-rose-600,
+.dark .text-rose-700 {
+  color: #f87171 !important;
+}
+.dark .border-red-200,
+.dark .border-red-300,
+.dark .border-rose-200 {
+  border-color: rgba(239, 68, 68, 0.28) !important;
+}
+
+/* Blue / Info / Dispatches */
+.dark .bg-blue-50,
+.dark .bg-blue-50\/40,
+.dark .bg-blue-50\/50,
+.dark .bg-blue-50\/60,
+.dark .bg-blue-50\/70,
+.dark .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.32) !important;
+}
+.dark .text-blue-600,
+.dark .text-blue-700,
+.dark .text-blue-800,
+.dark .text-blue-900,
+.dark .text-blue-950 {
+  color: #60a5fa !important;
+}
+.dark .border-blue-100,
+.dark .border-blue-200,
+.dark .border-blue-300 {
+  border-color: rgba(59, 130, 246, 0.28) !important;
+}
+
+/* Cyan / Population */
+.dark .bg-cyan-50,
+.dark .bg-cyan-50\/40,
+.dark .bg-cyan-100 {
+  background-color: rgba(6, 182, 212, 0.15) !important;
+  border-color: rgba(6, 182, 212, 0.32) !important;
+}
+.dark .text-cyan-600,
+.dark .text-cyan-700,
+.dark .text-cyan-800,
+.dark .text-cyan-900 {
+  color: #38bdf8 !important;
+}
+
+/* Teal & Sky */
+.dark .bg-teal-50,
+.dark .bg-teal-100 {
+  background-color: rgba(20, 184, 166, 0.15) !important;
+  border-color: rgba(20, 184, 166, 0.32) !important;
+}
+.dark .text-teal-600,
+.dark .text-teal-700,
+.dark .text-teal-800,
+.dark .text-teal-900 {
+  color: #2dd4bf !important;
+}
+.dark .border-teal-200,
+.dark .border-teal-300 {
+  border-color: rgba(20, 184, 166, 0.28) !important;
+}
+
+.dark .bg-sky-50,
+.dark .bg-sky-100 {
+  background-color: rgba(14, 165, 233, 0.15) !important;
+  border-color: rgba(14, 165, 233, 0.32) !important;
+}
+.dark .text-sky-600,
+.dark .text-sky-700,
+.dark .text-sky-800,
+.dark .text-sky-900 {
+  color: #38bdf8 !important;
+}
+.dark .border-sky-200,
+.dark .border-sky-300 {
+  border-color: rgba(14, 165, 233, 0.28) !important;
+}
+
+/* Indigo & Purple */
+.dark .bg-indigo-50,
+.dark .bg-indigo-100 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+  border-color: rgba(99, 102, 241, 0.32) !important;
+}
+.dark .text-indigo-600,
+.dark .text-indigo-700,
+.dark .text-indigo-800 {
+  color: #818cf8 !important;
+}
+.dark .bg-purple-50,
+.dark .bg-purple-100 {
+  background-color: rgba(168, 85, 247, 0.15) !important;
+  border-color: rgba(168, 85, 247, 0.32) !important;
+}
+.dark .text-purple-600,
+.dark .text-purple-700,
+.dark .text-purple-800 {
+  color: #c084fc !important;
+}
+
+/* Neutral Pills */
+.dark .bg-slate-200,
+.dark .bg-slate-200\/80,
+.dark .bg-slate-200\/90 {
+  background-color: #172238 !important;
+  color: #cbd5e1 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 5. Inputs, Selects & Textareas */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  background-color: #101828 !important;
+  color: #f8fafc !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  background-color: #141e33 !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+.dark select option {
+  background-color: #0c1322 !important;
+  color: #f8fafc !important;
+}
+
+/* 6. Tactical Map Night Tile Styling (Leaflet) */
+.dark .leaflet-tile-pane {
+  filter: brightness(0.65) invert(1) contrast(1.25) hue-rotate(200deg) saturate(0.35) brightness(0.85);
+}
+
+.dark .leaflet-popup-content-wrapper,
+.dark .leaflet-popup-tip {
+  background-color: #0c1322 !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75) !important;
+}
+
+.dark .leaflet-bar a {
+  background-color: #151f33 !important;
+  color: #f1f5f9 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .leaflet-bar a:hover {
+  background-color: #1e293b !important;
+  color: #60a5fa !important;
+}
+
+.dark .leaflet-container .leaflet-control-attribution {
+  background: rgba(9, 14, 26, 0.85) !important;
+  color: #94a3b8 !important;
+}
+
+.dark .leaflet-container .leaflet-control-attribution a {
+  color: #60a5fa !important;
+}
+
+/* 7. Hover Interactions in Dark Mode */
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-50\/90:hover,
+.dark .hover\:bg-slate-50\/50:hover {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+.dark .hover\:bg-slate-100:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .hover\:bg-slate-200:hover {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark .hover\:bg-blue-100:hover {
+  background-color: rgba(59, 130, 246, 0.22) !important;
+}
+
+.dark .hover\:bg-indigo-100:hover {
+  background-color: rgba(99, 102, 241, 0.22) !important;
+}
+
+.dark .hover\:bg-emerald-100:hover {
+  background-color: rgba(16, 185, 129, 0.22) !important;
+}
+
+.dark .hover\:bg-red-100:hover {
+  background-color: rgba(239, 68, 68, 0.22) !important;
+}
+
+.dark .hover\:bg-red-50:hover,
+.dark .hover\:bg-red-50\/50:hover,
+.dark .hover\:bg-red-100\/60:hover {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+}
+
+.dark .hover\:bg-amber-50:hover,
+.dark .hover\:bg-amber-50\/50:hover,
+.dark .hover\:bg-amber-100\/60:hover {
+  background-color: rgba(245, 158, 11, 0.18) !important;
+}
+
+/* 8. Table Styling */
+.dark thead.bg-slate-50,
+.dark thead {
+  background-color: #0a0f1c !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark thead th {
+  color: #94a3b8 !important;
+}
+
+/* 9. Shadows & Depth */
+.dark .shadow-xs,
+.dark .shadow-sm,
+.dark .shadow-md,
+.dark .shadow-2xs {
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+/* 10. Sleek Dark Scrollbar */
+.dark *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dark *::-webkit-scrollbar-track {
+  background: #080c14;
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* 11. Text Hover Transitions in Dark Mode */
+.dark .hover\:text-blue-600:hover,
+.dark .hover\:text-blue-700:hover,
+.dark .hover\:text-blue-800:hover {
+  color: #93c5fd !important;
+}
+
+.dark .hover\:text-red-600:hover,
+.dark .hover\:text-red-700:hover,
+.dark .hover\:text-red-800:hover {
+  color: #fca5a5 !important;
+}
+
+.dark .hover\:text-emerald-600:hover,
+.dark .hover\:text-emerald-700:hover,
+.dark .hover\:text-emerald-800:hover {
+  color: #6ee7b7 !important;
+}
+
+.dark .hover\:text-slate-200:hover {
+  color: #f8fafc !important;
+}
+
+.dark .hover\:text-white:hover {
+  color: #ffffff !important;
+}
+
+/* 12. Clean Print Isolation */
+@media print {
+  html, body, .dark body, .dark {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    color-scheme: light !important;
+  }
+  .dark * {
+    background-color: transparent !important;
+    color: #000000 !important;
+    border-color: #d1d5db !important;
+    box-shadow: none !important;
+  }
+  #printable-masterlist {
+    position: static !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+}
+
+/* ==========================================================================
+   DATA PRIVACY & COPY-PASTE PROTECTION (DPA & Secure Console Compliance)
+   Strictly prevents text selection, copying, cutting, and dragging of
+   sensitive citizen records, household profiles, and dashboard data.
+   ========================================================================== */
+.privacy-protected-dashboard,
+.privacy-protected-data,
+.privacy-protected-data *,
+.privacy-protected-dashboard * {
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+/* Allow search and filter inputs to be typed into while keeping copy/cut restricted */
+.privacy-protected-dashboard input,
+.privacy-protected-dashboard textarea,
+.privacy-protected-data input,
+.privacy-protected-data textarea {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  user-select: text !important;
+}
+
+/* Suppress browser selection highlights on protected data */
+.privacy-protected-dashboard ::selection,
+.privacy-protected-data ::selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+.privacy-protected-dashboard ::-moz-selection,
+.privacy-protected-data ::-moz-selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+
