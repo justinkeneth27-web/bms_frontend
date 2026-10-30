@@ -140,6 +140,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
   const handleSaveAndLinkGmail = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError(null);
+    setOtpNotice(null);
 
     const email = emailInput.trim().toLowerCase();
     const confirmEmail = confirmEmailInput.trim().toLowerCase();
@@ -164,9 +165,8 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
       setError('Gmail addresses do not match. Please re-enter.');
       return;
     }
-
     setIsLoading(true);
-    setOtpNotice(null);
+    setIsLoading(true);
 
     try {
       const res = await laravelApi.sendResetOtp({
@@ -176,14 +176,13 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
       });
 
       setOtpSent(true);
-      if (res.email) {
-        setEmailInput(res.email);
-      }
+      const deliveryEmail = res.email || email;
+      setEmailInput(deliveryEmail);
       setOtpNotice(
-        res.message ||
-          `A 6-digit OTP verification code has been dispatched to ${email}. Please check your inbox.`
+        `A 6-digit OTP verification code has been sent to ${deliveryEmail}. Please check your Gmail inbox and enter the code below.`
       );
     } catch (err: unknown) {
+      setOtpNotice(null);
       const msg = err instanceof Error ? err.message : 'Failed to save recovery Gmail and send OTP.';
       setError(msg);
     } finally {
@@ -195,6 +194,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
   const handleVerifyOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setOtpNotice(null);
 
     if (!otpCode.trim() || otpCode.trim().length !== 6) {
       setError('Please enter the 6-digit verification code sent to your Gmail.');
@@ -213,6 +213,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
       }
       setStep(3);
     } catch (err: unknown) {
+      setOtpNotice(null);
       const msg = err instanceof Error ? err.message : 'Invalid or expired OTP code.';
       setError(msg);
     } finally {

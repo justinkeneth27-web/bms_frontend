@@ -320,9 +320,7 @@ export const OfficialLoginForm: React.FC<OfficialLoginFormProps> = ({
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => {
-                    if (username.trim()) {
-                      sessionStorage.setItem('brgy_recovery_username', username.trim());
-                    }
+                    sessionStorage.clear();
                     window.location.hash = '#/reset-password';
                   }}
                   className="text-sm text-blue-500 hover:underline disabled:opacity-50"
