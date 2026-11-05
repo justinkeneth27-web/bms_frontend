@@ -249,8 +249,12 @@ body.dark {
 }
 
 .dark .bg-sky-50,
-.dark .bg-sky-100 {
-  background-color: rgba(14, 165, 233, 0.15) !important;
+.dark .bg-sky-50\/40,
+.dark .bg-sky-50\/50,
+.dark .bg-sky-50\/70,
+.dark .bg-sky-100,
+.dark .bg-sky-100\/80 {
+  background-color: rgba(14, 165, 233, 0.12) !important;
   border-color: rgba(14, 165, 233, 0.32) !important;
 }
 .dark .text-sky-600,

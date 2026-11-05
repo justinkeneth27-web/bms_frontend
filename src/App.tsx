@@ -96,7 +96,36 @@ export default function App() {
 
   const [reliefRecords, setReliefRecords] = useState<ReliefDistribution[]>([]);
 
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  // Dynamic live notifications state (starts clean with zero static mock alerts; persisted per session)
+  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('brgy_drrm_dynamic_notifications');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (n: NotificationItem) =>
+              !n.householdName?.toLowerCase().includes('penduko') &&
+              !n.message?.toLowerCase().includes('penduko') &&
+              !n.message?.toLowerCase().includes('maria elena') &&
+              !n.message?.toLowerCase().includes('juan dela cruz') &&
+              !n.message?.toLowerCase().includes('danilo c. flores')
+          );
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('brgy_drrm_dynamic_notifications', JSON.stringify(notifications));
+    } catch {
+      // ignore
+    }
+  }, [notifications]);
 
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(INITIAL_AUDIT_LOGS);
 
@@ -133,6 +162,15 @@ export default function App() {
 
   const isResidentLoggedInRef = useRef<boolean>(isResidentLoggedIn);
   isResidentLoggedInRef.current = isResidentLoggedIn;
+
+  // Unique browser tab identifier for cross-tab live synchronization
+  const tabIdRef = useRef<string>(Math.random().toString(36).substring(2) + Date.now().toString(36));
+  // Deduplication cache for cross-tab sync messages
+  const processedSyncIdsRef = useRef<Set<string>>(new Set());
+  // Synchronous in-memory deduplication cache for notifications to eliminate double-firing in StrictMode & multi-transport
+  const recentNotifsRef = useRef<Map<string, number>>(new Map());
+  // Tracks householdIds that were recently updated locally — polling must NOT override them for 8 seconds
+  const recentlyUpdatedHouseholdsRef = useRef<Map<string, number>>(new Map());
 
   const [authSecurityNotice, setAuthSecurityNotice] = useState<string | null>(null);
   const [redirectAfterLogin, setRedirectAfterLogin] = useState<AppView | null>(null);
@@ -195,6 +233,13 @@ export default function App() {
     }
     return 'hh-buang-1';
   });
+
+  // Active household for resident dashboard
+  const activeHousehold =
+    households.find((h) => h.id === activeHouseholdId) || households[0] || INITIAL_HOUSEHOLDS[0];
+
+  const assignedCenter = centers.find((c) => c.id === activeHousehold?.evacuationCenterId);
+
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
   // Global dark mode state (persisted across sessions)
@@ -403,7 +448,7 @@ export default function App() {
     );
   }, [households]);
 
-  // Notification helper
+  // Notification helper with synchronous and stateful duplicate prevention
   const addNotification = useCallback(
     (
       title: string,
@@ -413,19 +458,80 @@ export default function App() {
       householdId?: string,
       householdName?: string
     ) => {
-      const newNotif: NotificationItem = {
-        id: 'notif-' + Date.now(),
-        title,
-        message,
-        barangay,
-        type,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        read: false,
-        householdId,
-        householdName,
-      };
+      const now = Date.now();
+      const trimmedMsg = message.trim();
 
-      setNotifications((prev) => [newNotif, ...prev]);
+      // 1. Synchronous Ref Deduplication (Instantly blocks React 18 StrictMode double runs and dual transports)
+      // Key includes type so different status changes for same household are NOT blocked
+      const primaryKey = householdId
+        ? `hh_${householdId}_${type}`
+        : `notif_${barangay}_${type}_${trimmedMsg}`;
+
+      const lastFired = recentNotifsRef.current.get(primaryKey);
+      if (lastFired && now - lastFired < 2500) {
+        return;
+      }
+
+      // Track by message signature as well (2.5s window)
+      const msgKey = householdId ? `hh_msg_${householdId}_${trimmedMsg}` : `msg_${barangay}_${trimmedMsg}`;
+      const lastMsgFired = recentNotifsRef.current.get(msgKey);
+      if (lastMsgFired && now - lastMsgFired < 2500) {
+        return;
+      }
+
+      recentNotifsRef.current.set(primaryKey, now);
+      recentNotifsRef.current.set(msgKey, now);
+
+      // Keep cache small
+      if (recentNotifsRef.current.size > 150) {
+        const threshold = now - 30000;
+        for (const [k, v] of recentNotifsRef.current.entries()) {
+          if (v < threshold) recentNotifsRef.current.delete(k);
+        }
+      }
+
+      let added = false;
+      setNotifications((prev) => {
+        // Prevent duplicate notification if identical notification already exists within the last 10 entries
+        const recentSlice = prev.slice(0, 10);
+        const alreadyExists = recentSlice.some((n) => {
+          // Same household + same type + same message = true duplicate
+          if (householdId && n.householdId === householdId && n.type === type && n.message.trim() === trimmedMsg) {
+            return true;
+          }
+          // Same message + same type (broadcast-level dedup)
+          if (!householdId && n.message.trim() === trimmedMsg && n.type === type) {
+            return true;
+          }
+          return false;
+        });
+
+        if (alreadyExists) {
+          return prev;
+        }
+
+        added = true;
+        const newNotif: NotificationItem = {
+          id: 'notif-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+          title,
+          message: trimmedMsg,
+          barangay,
+          type,
+          timestamp: new Date().toISOString(),
+          read: false,
+          householdId,
+          householdName,
+        };
+
+        // When a household updates status, replace any older notifications for this household
+        // so that a single person never has duplicate or conflicting alerts (e.g. Critical Alert AND Safe at the same time)
+        const cleanPrev = prev.filter((n) => {
+          if (householdId && n.householdId === householdId) return false;
+          if (householdName && n.householdName && n.householdName.toLowerCase().trim() === householdName.toLowerCase().trim()) return false;
+          return true;
+        });
+        return [newNotif, ...cleanPrev];
+      });
 
       if (soundEnabled) {
         playNotificationSound(type);
@@ -452,7 +558,65 @@ export default function App() {
           try {
             const remoteHouseholds = await laravelApi.getHouseholds({ barangay: activeBarangay });
             if (Array.isArray(remoteHouseholds)) {
-              setHouseholds(remoteHouseholds);
+              setHouseholds((prev) => {
+                if (!prev || prev.length === 0) return remoteHouseholds;
+                const now = Date.now();
+                return remoteHouseholds.map((remoteH) => {
+                  const recentTs = recentlyUpdatedHouseholdsRef.current.get(remoteH.id);
+                  if (recentTs && now - recentTs < 20000) {
+                    const localH = prev.find((h) => h.id === remoteH.id);
+                    if (localH) {
+                      return {
+                        ...remoteH,
+                        status: localH.status,
+                        statusNote: localH.statusNote,
+                        lastStatusUpdate: localH.lastStatusUpdate,
+                        verificationStatus: localH.verificationStatus || remoteH.verificationStatus,
+                      };
+                    }
+                  }
+                  return remoteH;
+                });
+              });
+
+              // Dynamically populate Live Incident Stream from active real households in database
+              const activeIncidents = remoteHouseholds.filter(
+                (h) => h.barangay === activeBarangay && (h.status === 'EMERGENCY' || h.status === 'MODERATE')
+              );
+
+              if (activeIncidents.length > 0) {
+                setNotifications((prev) => {
+                  const updated = [...prev];
+                  activeIncidents.forEach((h) => {
+                    const hasAlert = updated.some(
+                      (n) => n.householdId === h.id || (n.householdName && n.householdName === h.headOfFamily)
+                    );
+                    if (!hasAlert) {
+                      const isEmergency = h.status === 'EMERGENCY';
+                      const dynamicTitle = isEmergency
+                        ? `🚨 NEED EVACUATE Alert: ${h.headOfFamily}`
+                        : `🏢 EVACUATED Status: ${h.headOfFamily}`;
+                      const dynamicNote =
+                        h.statusNote ||
+                        (isEmergency ? 'Urgent evacuation assistance requested' : 'Evacuated to shelter / safe zone');
+                      const dynamicMsg = `${h.headOfFamily} (${h.purok}, Brgy. ${h.barangay}): "${dynamicNote}"`;
+
+                      updated.unshift({
+                        id: `notif-dyn-${h.id}`,
+                        title: dynamicTitle,
+                        message: dynamicMsg,
+                        barangay: h.barangay,
+                        type: isEmergency ? 'emergency' : 'moderate',
+                        timestamp: h.lastStatusUpdate || new Date().toISOString(),
+                        read: false,
+                        householdId: h.id,
+                        householdName: h.headOfFamily,
+                      });
+                    }
+                  });
+                  return updated;
+                });
+              }
             }
           } catch (err) {
             console.warn('Failed to fetch remote households:', err);
@@ -558,6 +722,261 @@ export default function App() {
     syncWithBackend(true, currentBarangay);
   }, [currentBarangay, syncWithBackend]);
 
+  // Handler for applying real-time status synchronization from resident actions across tabs / devices
+  const applyHouseholdStatusSync = useCallback(
+    (householdId: string, status: AlertStatus, note?: string) => {
+      const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      let changedTarget: Household | null = null;
+
+      // Protect this household from background polling overwrites across tabs
+      recentlyUpdatedHouseholdsRef.current.set(householdId, Date.now());
+
+      setHouseholds((prev) => {
+        const target = prev.find((h) => h.id === householdId);
+        if (!target) return prev;
+
+        // Skip redundant update if already identical
+        if (target.status === status && (note === undefined || target.statusNote === note)) {
+          return prev;
+        }
+
+        changedTarget = target;
+        const effectiveNote =
+          note !== undefined
+            ? note
+            : status === 'SAFE'
+            ? 'Safe at home • All clear'
+            : status === 'EMERGENCY'
+            ? 'Urgent evacuation assistance requested'
+            : 'Evacuated to shelter / safe zone';
+
+        const updated: Household = {
+          ...target,
+          status,
+          statusNote: effectiveNote,
+          lastStatusUpdate: nowIso,
+        };
+
+        return prev.map((h) => (h.id === householdId ? updated : h));
+      });
+
+      // Side effects (notifications & logs) executed ONCE outside setState
+      if (changedTarget) {
+        const target: Household = changedTarget;
+        const typeMap = {
+          EMERGENCY: 'emergency' as const,
+          MODERATE: 'moderate' as const,
+          SAFE: 'safe' as const,
+        };
+
+        const titleMap = {
+          EMERGENCY: `🚨 NEED EVACUATE Alert: ${target.headOfFamily}`,
+          MODERATE: `🏢 EVACUATED Status: ${target.headOfFamily}`,
+          SAFE: `✅ Safe at Home Status: ${target.headOfFamily}`,
+        };
+
+        const effectiveNote =
+          note !== undefined
+            ? note
+            : status === 'SAFE'
+            ? 'Safe at home • All clear'
+            : status === 'EMERGENCY'
+            ? 'Urgent evacuation assistance requested'
+            : 'Evacuated to shelter / safe zone';
+
+        const msg = `${target.headOfFamily} (${target.purok}, Brgy. ${target.barangay}): "${effectiveNote}"`;
+
+        addNotification(titleMap[status], msg, target.barangay, typeMap[status], target.id, target.headOfFamily);
+
+        addAuditLog({
+          actionType: 'STATUS_CHANGE',
+          actorName: target.headOfFamily,
+          actorRole: 'Resident (Self-Reported)',
+          barangay: target.barangay,
+          target: `Household #${target.id} (${target.headOfFamily})`,
+          details: `Live resident self-report: alert status updated to "${status}". Note: ${note || 'Status updated via citizen portal.'}`,
+        });
+      }
+    },
+    [addNotification, addAuditLog]
+  );
+
+  // Handler for applying mass broadcast updates across tabs
+  const applyBroadcastStatusSync = useCallback(
+    (barangay: BarangayName, status: AlertStatus, note: string) => {
+      const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const nowMs = Date.now();
+
+      setHouseholds((prev) =>
+        prev.map((h) => {
+          if (h.barangay.toLowerCase() === barangay.toLowerCase()) {
+            recentlyUpdatedHouseholdsRef.current.set(h.id, nowMs);
+            return {
+              ...h,
+              status,
+              statusNote: note,
+              lastStatusUpdate: nowIso,
+            };
+          }
+          return h;
+        })
+      );
+
+      if (status === 'EMERGENCY') {
+        addNotification(
+          '🚨 MANDATORY EVACUATION ORDER ISSUED',
+          `Command Center issued an official "Need evacuate" alert to all residents in Barangay ${barangay}. Emergency teams deployed.`,
+          barangay,
+          'emergency'
+        );
+      } else {
+        addNotification(
+          '✅ ALL HOUSEHOLDS MARKED SAFE',
+          `All-clear status recorded for all households in Barangay ${barangay}.`,
+          barangay,
+          'safe'
+        );
+      }
+    },
+    [addNotification]
+  );
+
+  // Cross-tab real-time sync listeners (BroadcastChannel + Storage event with deduplication)
+  useEffect(() => {
+    const handleSyncMessage = (data: any) => {
+      if (!data || data.sourceTabId === tabIdRef.current) return;
+
+      // Deduplicate sync messages that arrive via both BroadcastChannel and Storage
+      if (data.syncId) {
+        if (processedSyncIdsRef.current.has(data.syncId)) return;
+        processedSyncIdsRef.current.add(data.syncId);
+        if (processedSyncIdsRef.current.size > 200) {
+          const first = processedSyncIdsRef.current.values().next().value;
+          if (first) processedSyncIdsRef.current.delete(first);
+        }
+      }
+
+      if (data.type === 'HOUSEHOLD_STATUS_UPDATED') {
+        applyHouseholdStatusSync(data.householdId, data.status, data.note);
+      } else if (data.type === 'BROADCAST_STATUS_UPDATED') {
+        applyBroadcastStatusSync(data.barangay, data.status, data.note);
+      }
+    };
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('brgy_status_live_sync');
+        bc.onmessage = (event) => {
+          handleSyncMessage(event.data);
+        };
+      }
+    } catch {
+      // ignore
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'brgy_status_live_sync' && event.newValue) {
+        try {
+          const data = JSON.parse(event.newValue);
+          handleSyncMessage(data);
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      if (bc) bc.close();
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [applyHouseholdStatusSync, applyBroadcastStatusSync]);
+
+  // Periodic background polling to sync live resident statuses from the PostgreSQL database
+  useEffect(() => {
+    if (currentView !== 'barangay-dashboard' && currentView !== 'household-dashboard') return;
+
+    const interval = setInterval(async () => {
+      if (isSyncingRef.current) return;
+      try {
+        const remoteHouseholds = await laravelApi.getHouseholds({ barangay: currentBarangay });
+        if (Array.isArray(remoteHouseholds) && remoteHouseholds.length > 0) {
+          const changedList: Household[] = [];
+          const now = Date.now();
+
+          // Clean up stale "recently updated" entries (older than 20s)
+          for (const [id, ts] of recentlyUpdatedHouseholdsRef.current.entries()) {
+            if (now - ts > 20000) recentlyUpdatedHouseholdsRef.current.delete(id);
+          }
+
+          setHouseholds((prev) => {
+            let hasChanged = false;
+            const updated = prev.map((localH) => {
+              const remoteH = remoteHouseholds.find((rh) => rh.id === localH.id);
+
+              // GUARD: If this household was updated locally/sync within the last 20s,
+              // do NOT let stale backend data overwrite the local change.
+              if (recentlyUpdatedHouseholdsRef.current.has(localH.id)) {
+                return localH;
+              }
+
+              if (remoteH && remoteH.status !== localH.status) {
+                hasChanged = true;
+                changedList.push(remoteH);
+                return { ...localH, ...remoteH };
+              }
+              // Only merge non-status fields from remote — preserve local status
+              return remoteH ? { ...localH, ...remoteH, status: localH.status } : localH;
+            });
+
+            return hasChanged ? updated : prev;
+          });
+
+          // Trigger notifications once outside setState (only for barangay command dashboard)
+          // and only for households that were NOT recently updated locally
+          if (currentView === 'barangay-dashboard') {
+            for (const remoteH of changedList) {
+              if (recentlyUpdatedHouseholdsRef.current.has(remoteH.id)) {
+                continue;
+              }
+              const statusTitle =
+                remoteH.status === 'EMERGENCY'
+                  ? `🚨 NEED EVACUATE Alert: ${remoteH.headOfFamily}`
+                  : remoteH.status === 'MODERATE'
+                  ? `🏢 EVACUATED Status: ${remoteH.headOfFamily}`
+                  : `✅ Safe at Home Status: ${remoteH.headOfFamily}`;
+
+              const typeMap = {
+                EMERGENCY: 'emergency' as const,
+                MODERATE: 'moderate' as const,
+                SAFE: 'safe' as const,
+              };
+
+              const noteText = remoteH.statusNote
+                ? `${remoteH.headOfFamily} (${remoteH.purok}, Brgy. ${remoteH.barangay}): "${remoteH.statusNote}"`
+                : `${remoteH.headOfFamily} updated status to ${remoteH.status} (${remoteH.purok}, Brgy. ${remoteH.barangay})`;
+
+              addNotification(
+                statusTitle,
+                noteText,
+                remoteH.barangay,
+                typeMap[remoteH.status],
+                remoteH.id,
+                remoteH.headOfFamily
+              );
+            }
+          }
+        }
+      } catch {
+        // Silent fail on minor network hiccup during polling
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [currentView, currentBarangay, addNotification]);
+
   // Handlers for Official Login
   const handleOfficialLogin = (account: OfficialAccount) => {
     isOfficialLoggedInRef.current = true;
@@ -614,7 +1033,7 @@ export default function App() {
     const brgyKey = accountEntry ? accountEntry[0] : `acc_${cleanUser.replace(/[^a-z0-9]/g, '_')}`;
     const updatedAccount: OfficialAccount = {
       ...account,
-      passwordHash: '',
+      passwordHash: newPassword,
     };
 
     const updatedAccounts: Record<string, OfficialAccount> = {
@@ -757,6 +1176,9 @@ export default function App() {
       ...officialAccounts,
       [accountKey]: updatedAccount,
     };
+    if (officialAccounts[updatedAccount.barangay]?.username.toLowerCase() === updatedAccount.username.toLowerCase()) {
+      updatedAccounts[updatedAccount.barangay] = updatedAccount;
+    }
 
     setOfficialAccounts(updatedAccounts);
     try {
@@ -771,7 +1193,14 @@ export default function App() {
     }
 
     const previousAccount = officialAccounts[accountKey];
-    const isPasswordChange = previousAccount && previousAccount.passwordHash !== updatedAccount.passwordHash;
+    const isExplicitPasswordChange = Boolean(
+      updatedAccount.passwordHash &&
+      updatedAccount.passwordHash.trim().length >= 6 &&
+      updatedAccount.passwordHash !== '••••••••'
+    );
+    const isPasswordChange =
+      isExplicitPasswordChange ||
+      (previousAccount && previousAccount.passwordHash && previousAccount.passwordHash !== updatedAccount.passwordHash);
 
     addAuditLog({
       actionType: isPasswordChange ? 'PASSWORD_RESET' : 'EDIT',
@@ -795,7 +1224,7 @@ export default function App() {
           position: updatedAccount.position,
           phone: updatedAccount.phone,
           email: updatedAccount.email,
-          password: isPasswordChange ? updatedAccount.passwordHash : undefined,
+          password: isExplicitPasswordChange ? updatedAccount.passwordHash : undefined,
         },
         {
           name: currentOfficial?.officialName,
@@ -897,53 +1326,128 @@ export default function App() {
 
   // Handle Household Status Update
   const handleUpdateHouseholdStatus = (householdId: string, status: AlertStatus, note?: string) => {
-    setHouseholds((prev) =>
-      prev.map((h) => {
-        if (h.id === householdId) {
-          const updated: Household = {
-            ...h,
-            status,
-            statusNote: note !== undefined ? note : h.statusNote,
-            lastStatusUpdate: new Date().toISOString().replace('T', ' ').substring(0, 19),
-          };
+    const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    let targetHousehold: Household | undefined;
 
-          const typeMap = {
-            EMERGENCY: 'emergency' as const,
-            MODERATE: 'moderate' as const,
-            SAFE: 'safe' as const,
-          };
-          const titleMap = {
-            EMERGENCY: `🚨 MUST EVACUATE Alert: ${h.headOfFamily}`,
-            MODERATE: `⚠️ MODERATE ALERT: ${h.headOfFamily}`,
-            SAFE: `✅ Safe at Home Status: ${h.headOfFamily}`,
-          };
-          const msg = note
-            ? `${h.headOfFamily} (${h.purok}, Brgy. ${h.barangay}): "${note}"`
-            : `${h.headOfFamily} updated status to ${status} (${h.purok}, Brgy. ${h.barangay})`;
+    // Immediately protect this household from polling overwrites for the next 10 seconds
+    recentlyUpdatedHouseholdsRef.current.set(householdId, Date.now());
 
-          addNotification(titleMap[status], msg, h.barangay, typeMap[status], h.id, h.headOfFamily);
+    const effectiveNote =
+      note !== undefined
+        ? note
+        : status === 'SAFE'
+        ? 'Safe at home • All clear'
+        : status === 'EMERGENCY'
+        ? 'Urgent evacuation assistance requested'
+        : 'Evacuated to shelter / safe zone';
 
-          addAuditLog({
-            actionType: 'STATUS_CHANGE',
-            actorName: currentOfficial ? currentOfficial.officialName : h.headOfFamily,
-            actorRole: currentOfficial ? currentOfficial.position : 'Resident',
-            barangay: h.barangay,
-            target: `Household #${h.id} (${h.headOfFamily})`,
-            details: `Alert status updated to "${status}" in ${h.purok}. Note: ${note || 'Status verified.'}`,
-          });
+    setHouseholds((prev) => {
+      const target = prev.find((h) => h.id === householdId);
+      if (!target) return prev;
+      targetHousehold = target;
 
-          return updated;
-        }
-        return h;
-      })
-    );
+      const updated: Household = {
+        ...target,
+        status,
+        statusNote: effectiveNote,
+        lastStatusUpdate: nowIso,
+        ...(status === 'SAFE' ? { verificationStatus: 'Verified' as const } : {}),
+      };
 
-    // Asynchronously synchronize status update with Laravel backend database
-    const targetHH = households.find((h) => h.id === householdId);
+      return prev.map((h) => (h.id === householdId ? updated : h));
+    });
+
+    const hh = targetHousehold || households.find((h) => h.id === householdId);
+    if (hh) {
+      const typeMap = {
+        EMERGENCY: 'emergency' as const,
+        MODERATE: 'moderate' as const,
+        SAFE: 'safe' as const,
+      };
+      const titleMap = {
+        EMERGENCY: `🚨 NEED EVACUATE Alert: ${hh.headOfFamily}`,
+        MODERATE: `🏢 EVACUATED Status: ${hh.headOfFamily}`,
+        SAFE: `✅ Safe at Home Status: ${hh.headOfFamily}`,
+      };
+      const msg = `${hh.headOfFamily} (${hh.purok}, Brgy. ${hh.barangay}): "${effectiveNote}"`;
+
+      // Trigger notification and audit log ONCE outside setState to prevent StrictMode doubling
+      addNotification(titleMap[status], msg, hh.barangay, typeMap[status], hh.id, hh.headOfFamily);
+
+      addAuditLog({
+        actionType: 'STATUS_CHANGE',
+        actorName: currentOfficial ? currentOfficial.officialName : hh.headOfFamily,
+        actorRole: currentOfficial ? currentOfficial.position : 'Resident (Self-Reported)',
+        barangay: hh.barangay,
+        target: `Household #${hh.id} (${hh.headOfFamily})`,
+        details: `Alert status updated to "${status}" in ${hh.purok}. Note: ${effectiveNote}`,
+      });
+    }
+
+    // 1. Instant cross-tab BroadcastChannel sync to Barangay Dashboard with unique syncId
+    const syncId = `sync_${householdId}_${status}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    processedSyncIdsRef.current.add(syncId);
+
+    const syncData = {
+      syncId,
+      type: 'HOUSEHOLD_STATUS_UPDATED',
+      householdId,
+      status,
+      note: effectiveNote,
+      sourceTabId: tabIdRef.current,
+      timestamp: Date.now(),
+    };
+
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('brgy_status_live_sync');
+        bc.postMessage(syncData);
+        bc.close();
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Cross-tab storage event fallback (fires in all other open tabs/windows)
+    try {
+      localStorage.setItem('brgy_status_live_sync', JSON.stringify(syncData));
+    } catch {
+      // ignore
+    }
+
+    // 3. Asynchronously synchronize status update with Laravel backend database
+    const targetHH = hh || households.find((h) => h.id === householdId);
     laravelApi
-      .updateHouseholdStatus(householdId, status, note, targetHH?.evacuationCenterId, {
-        name: currentOfficial ? currentOfficial.officialName : undefined,
-        role: currentOfficial ? currentOfficial.position : undefined,
+      .updateHouseholdStatus(
+        householdId,
+        status,
+        effectiveNote,
+        targetHH?.evacuationCenterId,
+        {
+          name: currentOfficial ? currentOfficial.officialName : (targetHH?.headOfFamily || 'Resident'),
+          role: currentOfficial ? currentOfficial.position : 'Resident (Self-Reported)',
+        },
+        status === 'SAFE' ? 'Verified' : undefined
+      )
+      .then((savedHH) => {
+        if (savedHH) {
+          recentlyUpdatedHouseholdsRef.current.set(savedHH.id, Date.now());
+          setHouseholds((prev) =>
+            prev.map((h) => {
+              if (h.id === savedHH.id) {
+                // Keep the locally updated status and note to guarantee no revert race condition
+                return {
+                  ...h,
+                  ...savedHH,
+                  status: h.status,
+                  statusNote: h.statusNote,
+                  verificationStatus: h.verificationStatus || savedHH.verificationStatus,
+                };
+              }
+              return h;
+            })
+          );
+        }
       })
       .catch((err) => {
         console.warn('Backend household status sync note:', err);
@@ -953,10 +1457,13 @@ export default function App() {
   // Directive: Broadcast Need Evacuate to all households in current barangay
   const handleBroadcastMustEvacuate = () => {
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const nowMs = Date.now();
 
+    // Protect all households in active barangay from polling overwrites
     setHouseholds((prev) => {
       const updated = prev.map((h) => {
-        if (h.barangay === currentBarangay) {
+        if (h.barangay.toLowerCase() === currentBarangay.toLowerCase()) {
+          recentlyUpdatedHouseholdsRef.current.set(h.id, nowMs);
           return {
             ...h,
             status: 'EMERGENCY' as AlertStatus,
@@ -967,14 +1474,33 @@ export default function App() {
         return h;
       });
 
-      try {
-        // Household update persisted via backend; no localStorage sync.
-      } catch (e) {
-        console.warn('Storage save error:', e);
-      }
-
       return updated;
     });
+
+    // Broadcast across open tabs with deduplication ID
+    const syncId = `broadcast_${currentBarangay}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    processedSyncIdsRef.current.add(syncId);
+
+    const broadcastData = {
+      syncId,
+      type: 'BROADCAST_STATUS_UPDATED',
+      barangay: currentBarangay,
+      status: 'EMERGENCY' as AlertStatus,
+      note: '🚨 Need evacuate: Immediate evacuation directive issued by Barangay DRRM Command',
+      sourceTabId: tabIdRef.current,
+      timestamp: Date.now(),
+    };
+
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('brgy_status_live_sync');
+        bc.postMessage(broadcastData);
+        bc.close();
+      }
+      localStorage.setItem('brgy_status_live_sync', JSON.stringify(broadcastData));
+    } catch {
+      // ignore
+    }
 
     addAuditLog({
       actionType: 'STATUS_CHANGE',
@@ -1013,10 +1539,12 @@ export default function App() {
   // Directive: Mark all household directory records as Safe
   const handleSafeAllHouseholds = () => {
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const nowMs = Date.now();
 
     setHouseholds((prev) => {
       const updated = prev.map((h) => {
-        if (h.barangay === currentBarangay) {
+        if (h.barangay.toLowerCase() === currentBarangay.toLowerCase()) {
+          recentlyUpdatedHouseholdsRef.current.set(h.id, nowMs);
           return {
             ...h,
             status: 'SAFE' as AlertStatus,
@@ -1028,14 +1556,33 @@ export default function App() {
         return h;
       });
 
-      try {
-        // Household update persisted via backend; no localStorage sync.
-      } catch (e) {
-        console.warn('Storage save error:', e);
-      }
-
       return updated;
     });
+
+    // Broadcast across open tabs with deduplication ID
+    const syncId = `broadcast_safe_${currentBarangay}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    processedSyncIdsRef.current.add(syncId);
+
+    const safeBroadcastData = {
+      syncId,
+      type: 'BROADCAST_STATUS_UPDATED',
+      barangay: currentBarangay,
+      status: 'SAFE' as AlertStatus,
+      note: 'All Clear: Marked Safe by Barangay DRRM Official',
+      sourceTabId: tabIdRef.current,
+      timestamp: Date.now(),
+    };
+
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('brgy_status_live_sync');
+        bc.postMessage(safeBroadcastData);
+        bc.close();
+      }
+      localStorage.setItem('brgy_status_live_sync', JSON.stringify(safeBroadcastData));
+    } catch {
+      // ignore
+    }
 
     addAuditLog({
       actionType: 'STATUS_CHANGE',
@@ -1204,6 +1751,9 @@ export default function App() {
 
   // Save or Create Household from Form (Submitted directly to Barangay Command Center database)
   const handleSaveHousehold = (householdData: Household) => {
+    // Protect newly registered/updated household from polling race conditions
+    recentlyUpdatedHouseholdsRef.current.set(householdData.id, Date.now());
+
     const existingIndex = households.findIndex((h) => h.id === householdData.id);
     let updatedList: Household[];
     const isEdit = existingIndex >= 0;
@@ -1509,12 +2059,6 @@ export default function App() {
       });
   };
 
-  // Active household for resident dashboard
-  const activeHousehold =
-    households.find((h) => h.id === activeHouseholdId) || households[0] || INITIAL_HOUSEHOLDS[0];
-
-  const assignedCenter = centers.find((c) => c.id === activeHousehold?.evacuationCenterId);
-
   return (
     <div className={`min-h-screen font-sans flex flex-col transition-colors duration-200 ${isDarkMode ? 'dark bg-[#080c14] text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
       {/* Main View Area */}
@@ -1560,6 +2104,7 @@ export default function App() {
                 navigateTo('household-form');
               }}
               onBroadcastMustEvacuate={handleBroadcastMustEvacuate}
+              onSafeAllHouseholds={handleSafeAllHouseholds}
               onEditHousehold={(hh) => {
                 setEditingHousehold(hh);
                 navigateTo('household-form');
@@ -1578,6 +2123,13 @@ export default function App() {
               onMarkNotificationRead={(id) => {
                 setNotifications((prev) =>
                   prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+                );
+              }}
+              onMarkAllNotificationsRead={() => {
+                setNotifications((prev) =>
+                  prev.map((n) =>
+                    n.barangay === currentBarangay ? { ...n, read: true } : n
+                  )
                 );
               }}
               onClearAllNotifications={() => {
@@ -1851,7 +2403,7 @@ export default function App() {
           onClose={() => setShowCreateAccountModal(false)}
           currentBarangay={currentBarangay}
           currentOfficial={currentOfficial}
-          existingAccounts={Object.values(officialAccounts)}
+          existingAccounts={Array.from(new Map(Object.values(officialAccounts).map((a) => [(a.username || '').toLowerCase(), a])).values())}
           onCreateAccount={handleCreateOfficialAccount}
         />
       )}

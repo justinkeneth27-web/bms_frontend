@@ -41,25 +41,37 @@ export const HouseholdDashboard: React.FC<HouseholdDashboardProps> = ({
   const [currentStatus, setCurrentStatus] = useState<AlertStatus>(household.status);
   const [statusNote, setStatusNote] = useState<string>(household.statusNote || '');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [isSyncingStatus, setIsSyncingStatus] = useState<boolean>(false);
 
   useEffect(() => {
     setCurrentStatus(household.status);
-  }, [household.status]);
+    if (household.statusNote !== undefined) {
+      setStatusNote(household.statusNote);
+    }
+  }, [household.status, household.statusNote]);
 
   const barangayInfo = BARANGAY_CONFIG[household.barangay];
 
   const handleSelectStatus = (newStatus: AlertStatus, defaultNote: string) => {
     setCurrentStatus(newStatus);
-    const noteToSend = statusNote.trim() || defaultNote;
-    onUpdateStatus(household.id, newStatus, noteToSend);
+    setIsSyncingStatus(true);
+    setStatusNote(defaultNote);
+    onUpdateStatus(household.id, newStatus, defaultNote);
 
     const labels: Record<AlertStatus, string> = {
       SAFE: 'Safe',
-      EMERGENCY: 'Evacuate',
+      EMERGENCY: 'Need Evacuate',
       MODERATE: 'Evacuated',
     };
 
-    setFeedbackMessage(`Status updated to "${labels[newStatus]}" and live-synced to Barangay ${household.barangay} Command Center.`);
+    setFeedbackMessage(
+      `Status updated to "${labels[newStatus]}" — Automatically synced to Barangay ${household.barangay} Dashboard.`
+    );
+
+    setTimeout(() => {
+      setIsSyncingStatus(false);
+    }, 600);
+
     setTimeout(() => {
       setFeedbackMessage(null);
     }, 4500);
@@ -69,8 +81,8 @@ export const HouseholdDashboard: React.FC<HouseholdDashboardProps> = ({
     switch (status) {
       case 'EMERGENCY':
         return {
-          label: 'Evacuate',
-          badgeText: '🚨 Need Evacuation',
+          label: 'Need Evacuate',
+          badgeText: '🚨 Need Evacuate',
           badgeClass: 'bg-red-600 text-white',
           borderClass: 'border-red-500',
           bgClass: 'bg-red-50',
@@ -131,6 +143,10 @@ export const HouseholdDashboard: React.FC<HouseholdDashboardProps> = ({
               </h1>
               <span className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded uppercase">
                 Brgy. {household.barangay}
+              </span>
+              <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-950/80 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold rounded">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live Sync Active
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
@@ -248,7 +264,7 @@ export const HouseholdDashboard: React.FC<HouseholdDashboardProps> = ({
             <button
               type="button"
               id="btn-status-safe"
-              onClick={() => handleSelectStatus('SAFE', 'Safe at Home')}
+              onClick={() => handleSelectStatus('SAFE', 'Safe at home • No immediate danger')}
               className={`p-4 rounded-xl font-black text-sm border-2 transition flex flex-col items-center justify-center gap-1.5 cursor-pointer text-center ${
                 currentStatus === 'SAFE'
                   ? 'bg-emerald-600 text-white border-emerald-400 shadow-lg shadow-emerald-600/30 ring-2 ring-emerald-400/40'
@@ -260,11 +276,11 @@ export const HouseholdDashboard: React.FC<HouseholdDashboardProps> = ({
               <span className="text-[11px] font-normal opacity-90">Safe at home • No immediate danger</span>
             </button>
 
-            {/* 2. EVACUATE */}
+            {/* 2. NEED EVACUATE */}
             <button
               type="button"
               id="btn-status-evacuate"
-              onClick={() => handleSelectStatus('EMERGENCY', 'Needs Immediate Evacuation')}
+              onClick={() => handleSelectStatus('EMERGENCY', 'Needs immediate evacuation • Send rescue assistance')}
               className={`p-4 rounded-xl font-black text-sm border-2 transition flex flex-col items-center justify-center gap-1.5 cursor-pointer text-center ${
                 currentStatus === 'EMERGENCY'
                   ? 'bg-red-600 text-white border-red-400 shadow-lg shadow-red-600/40 ring-2 ring-red-400/40 animate-pulse'
@@ -272,7 +288,7 @@ export const HouseholdDashboard: React.FC<HouseholdDashboardProps> = ({
               }`}
             >
               <AlertTriangle className="w-6 h-6 text-red-300" />
-              <span className="uppercase tracking-wider text-base">Evacuate</span>
+              <span className="uppercase tracking-wider text-base">Need Evacuate</span>
               <span className="text-[11px] font-normal opacity-90">Needs evacuation • Send rescue assistance</span>
             </button>
 
@@ -280,7 +296,7 @@ export const HouseholdDashboard: React.FC<HouseholdDashboardProps> = ({
             <button
               type="button"
               id="btn-status-evacuated"
-              onClick={() => handleSelectStatus('MODERATE', 'Evacuated at Center')}
+              onClick={() => handleSelectStatus('MODERATE', 'Relocated to evacuation shelter / safe zone')}
               className={`p-4 rounded-xl font-black text-sm border-2 transition flex flex-col items-center justify-center gap-1.5 cursor-pointer text-center ${
                 currentStatus === 'MODERATE'
                   ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-600/30 ring-2 ring-blue-400/40'

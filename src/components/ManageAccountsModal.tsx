@@ -23,6 +23,7 @@ import {
   ShieldAlert,
   Clock,
   Mail,
+  Save,
 } from 'lucide-react';
 
 interface ManageAccountsModalProps {
@@ -60,10 +61,10 @@ export const ManageAccountsModal: React.FC<ManageAccountsModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedUser, setCopiedUser] = useState<string | null>(null);
 
-  // Card sub-modes by accountKey: 'edit' | 'password' | null
+  // Card sub-modes by accountKey: 'edit' | 'password' | 'email' | null
   const [activeAction, setActiveAction] = useState<{
     key: string;
-    type: 'edit' | 'password';
+    type: 'edit' | 'password' | 'email';
   } | null>(null);
 
   // Edit fields state
@@ -71,6 +72,7 @@ export const ManageAccountsModal: React.FC<ManageAccountsModalProps> = ({
   const [editPosition, setEditPosition] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
+  const [editEmailOnly, setEditEmailOnly] = useState('');
 
   // Password fields state
   const [newPassword, setNewPassword] = useState('');
@@ -93,19 +95,30 @@ export const ManageAccountsModal: React.FC<ManageAccountsModalProps> = ({
     currentOfficial.position.toLowerCase().includes('chief') ||
     currentOfficial.position.toLowerCase().includes('captain');
 
-  // Filter accounts belonging strictly to currentBarangay
-  const accountsList = (Object.entries(allOfficialAccounts || {}) as [string, OfficialAccount][])
+  // Filter accounts belonging strictly to currentBarangay and deduplicate by username
+  const accountsByUsername = new Map<string, { key: string; acc: OfficialAccount }>();
+
+  (Object.entries(allOfficialAccounts || {}) as [string, OfficialAccount][])
     .filter(([_, acc]) => acc && acc.barangay === currentBarangay)
-    .map(([key, acc]) => ({
-      key,
-      username: acc.username,
-      passwordHash: acc.passwordHash,
-      barangay: acc.barangay,
-      officialName: acc.officialName,
-      position: acc.position,
-      phone: acc.phone,
-      email: acc.email,
-    }));
+    .forEach(([key, acc]) => {
+      const u = (acc.username || '').toLowerCase().trim();
+      if (!u) return;
+      // Prefer standard 'acc_' keys over barangay alias keys
+      if (!accountsByUsername.has(u) || key.startsWith('acc_')) {
+        accountsByUsername.set(u, { key, acc });
+      }
+    });
+
+  const accountsList = Array.from(accountsByUsername.values()).map(({ key, acc }) => ({
+    key,
+    username: acc.username,
+    passwordHash: acc.passwordHash,
+    barangay: acc.barangay,
+    officialName: acc.officialName,
+    position: acc.position,
+    phone: acc.phone,
+    email: acc.email,
+  }));
 
   const filteredAccounts = accountsList.filter((acc) => {
     if (!searchQuery.trim()) return true;
@@ -156,6 +169,48 @@ export const ManageAccountsModal: React.FC<ManageAccountsModalProps> = ({
     setConfirmPassword('');
     setShowPassword(false);
     setStatusMessage(null);
+  };
+
+  const startEmailChange = (key: string, acc: OfficialAccount) => {
+    if (!isCurrentUserPrimaryHead && acc.username.toLowerCase() !== currentOfficial.username.toLowerCase()) {
+      setStatusMessage({
+        text: 'Access Denied: Registered personnel can only update their own recovery email.',
+        type: 'error',
+      });
+      return;
+    }
+    setActiveAction({ key, type: 'email' });
+    setEditEmailOnly(acc.email || '');
+    setStatusMessage(null);
+  };
+
+  const handleSaveEmail = (key: string, originalAccount: OfficialAccount) => {
+    if (!isCurrentUserPrimaryHead && originalAccount.username.toLowerCase() !== currentOfficial.username.toLowerCase()) {
+      setStatusMessage({ text: 'Permission Denied: Only Primary DRRM Head can edit other accounts.', type: 'error' });
+      return;
+    }
+
+    const cleanEmail = editEmailOnly.trim();
+    if (cleanEmail && (!cleanEmail.includes('@') || !cleanEmail.includes('.'))) {
+      setStatusMessage({ text: 'Please enter a valid Gmail / email address (e.g. yourname@gmail.com).', type: 'error' });
+      return;
+    }
+
+    const updated: OfficialAccount = {
+      ...originalAccount,
+      email: cleanEmail || undefined,
+    };
+
+    onUpdateAccount(key, updated);
+    setStatusMessage({
+      text: cleanEmail
+        ? `Recovery Gmail set to "${cleanEmail}" for @${originalAccount.username}! Gmail OTP active.`
+        : `Recovery email cleared for @${originalAccount.username}.`,
+      type: 'success',
+    });
+    setActiveAction(null);
+    setEditEmailOnly('');
+    setTimeout(() => setStatusMessage(null), 3500);
   };
 
   const cancelSubAction = () => {
@@ -373,6 +428,7 @@ export const ManageAccountsModal: React.FC<ManageAccountsModalProps> = ({
               const canModifyThisAccount = isCurrentUserPrimaryHead || isCurrentSession;
               const isEditing = activeAction?.key === acc.key && activeAction.type === 'edit';
               const isChangingPassword = activeAction?.key === acc.key && activeAction.type === 'password';
+              const isChangingEmail = activeAction?.key === acc.key && activeAction.type === 'email';
 
               return (
                 <div
@@ -426,13 +482,37 @@ export const ManageAccountsModal: React.FC<ManageAccountsModalProps> = ({
                           <span className="text-slate-300">•</span>
                           <Phone className="w-3.5 h-3.5 text-slate-400" />
                           <span>{acc.phone || 'No phone registered'}</span>
-                          {acc.email && (
+                          {acc.email ? (
                             <>
                               <span className="text-slate-300">•</span>
-                              <Mail className="w-3.5 h-3.5 text-blue-500" />
-                              <span className="text-blue-700 font-medium">{acc.email}</span>
+                              <button
+                                type="button"
+                                onClick={() => canModifyThisAccount && startEmailChange(acc.key, acc)}
+                                className={`inline-flex items-center gap-1 font-medium transition ${
+                                  canModifyThisAccount
+                                    ? 'text-sky-700 hover:text-sky-900 hover:underline cursor-pointer'
+                                    : 'text-slate-600 cursor-default'
+                                }`}
+                                title={canModifyThisAccount ? 'Click to change recovery Gmail address' : 'Recovery email'}
+                              >
+                                <Mail className="w-3.5 h-3.5 text-sky-600" />
+                                <span>{acc.email}</span>
+                              </button>
                             </>
-                          )}
+                          ) : canModifyThisAccount ? (
+                            <>
+                              <span className="text-slate-300">•</span>
+                              <button
+                                type="button"
+                                onClick={() => startEmailChange(acc.key, acc)}
+                                className="inline-flex items-center gap-1 text-sky-600 hover:text-sky-800 font-semibold cursor-pointer text-xs"
+                                title="Click to set official recovery Gmail"
+                              >
+                                <Mail className="w-3.5 h-3.5 text-sky-500" />
+                                <span>+ Set Recovery Gmail</span>
+                              </button>
+                            </>
+                          ) : null}
                         </div>
 
                         <div className="flex items-center gap-2 pt-0.5 text-[11px] text-slate-500 flex-wrap">
@@ -452,10 +532,19 @@ export const ManageAccountsModal: React.FC<ManageAccountsModalProps> = ({
                             </button>
                           </span>
                           <span className="text-slate-300">|</span>
-                          <span className="text-slate-500 flex items-center gap-1">
-                            <Mail className="w-3.5 h-3.5 text-blue-500" />
-                            <span>{acc.email ? 'Gmail OTP Active' : 'No Gmail Linked'}</span>
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => canModifyThisAccount && startEmailChange(acc.key, acc)}
+                            className={`flex items-center gap-1 transition ${
+                              canModifyThisAccount
+                                ? 'text-slate-600 hover:text-sky-700 cursor-pointer'
+                                : 'text-slate-500 cursor-default'
+                            }`}
+                            title={canModifyThisAccount ? 'Click to set or change recovery Gmail' : undefined}
+                          >
+                            <Mail className="w-3.5 h-3.5 text-sky-500" />
+                            <span>{acc.email ? 'Gmail OTP Active' : 'No Gmail Linked (Set)'}</span>
+                          </button>
                           <span className="text-slate-300">|</span>
                           <span className="text-slate-500 flex items-center gap-1">
                             <Lock className="w-3 h-3 text-slate-400" />
@@ -475,7 +564,21 @@ export const ManageAccountsModal: React.FC<ManageAccountsModalProps> = ({
                         <span>Managed by Primary DRRM Head</span>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center flex-wrap sm:flex-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => (isChangingEmail ? cancelSubAction() : startEmailChange(acc.key, acc))}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                            isChangingEmail
+                              ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                          }`}
+                          title="Set or change recovery Gmail address (for OTP password reset)"
+                        >
+                          <Mail className={`w-3.5 h-3.5 ${isChangingEmail ? 'text-white' : 'text-sky-600'}`} />
+                          <span>{isChangingEmail ? 'Close' : 'Change Gmail'}</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => (isEditing ? cancelSubAction() : startEdit(acc.key, acc))}
@@ -704,6 +807,70 @@ export const ManageAccountsModal: React.FC<ManageAccountsModalProps> = ({
                         >
                           <Lock className="w-3.5 h-3.5" />
                           <span>Update Password</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sub-panel: Change Recovery Email / Gmail */}
+                  {isChangingEmail && canModifyThisAccount && (
+                    <div className="p-4 sm:p-5 bg-sky-50/70 dark:bg-slate-900/90 border-t border-sky-200 dark:border-slate-800 space-y-4 animate-in fade-in duration-150">
+                      <div className="flex items-center justify-between border-b border-sky-200 dark:border-slate-800 pb-2">
+                        <span className="font-bold text-xs text-sky-900 dark:text-sky-300 flex items-center gap-1.5">
+                          <Mail className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                          <span>Set Recovery Email Address (Gmail) for @{acc.username}</span>
+                        </span>
+                        <span className="text-[11px] text-sky-700 dark:text-sky-300 font-medium bg-sky-100/80 dark:bg-sky-950/60 px-2 py-0.5 rounded-full border border-sky-200 dark:border-sky-800">
+                          Used for OTP verification &amp; password reset
+                        </span>
+                      </div>
+
+                      <div className="bg-white dark:bg-slate-800/80 border border-sky-200 dark:border-slate-700 rounded-xl p-3 text-xs text-slate-600 dark:text-slate-300 space-y-1">
+                        <p className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                          <Shield className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                          Official Recovery Account Protection
+                        </p>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          When an official forgets their password on the login screen, an automated 6-digit OTP code will be sent to this Gmail address to securely verify and reset credentials.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                          <span>Official Gmail Address</span>
+                          <span className="text-sky-600 dark:text-sky-400 font-normal">(@gmail.com recommended)</span>
+                        </label>
+                        <div className="relative">
+                          <Mail className="w-4 h-4 text-slate-400 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="email"
+                            value={editEmailOnly}
+                            onChange={(e) => setEditEmailOnly(e.target.value)}
+                            placeholder="e.g. yourbarangay.official@gmail.com"
+                            className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-hidden text-xs font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                            autoFocus
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Leave empty if you wish to remove the recovery email from this account.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-sky-200 dark:border-slate-800">
+                        <button
+                          type="button"
+                          onClick={cancelSubAction}
+                          className="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEmail(acc.key, acc)}
+                          className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Save Recovery Email</span>
                         </button>
                       </div>
                     </div>

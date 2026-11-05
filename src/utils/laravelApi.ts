@@ -157,6 +157,26 @@ export const laravelApi = {
     return data.data || [];
   },
 
+  /**
+   * Fetch dedicated Admin details, permissions, and DRRM overview
+   */
+  async getAdminInfo(username?: string) {
+    const query = username ? `?username=${encodeURIComponent(username)}` : '';
+    const res = await fetch(`${API_BASE_URL}/admin${query}`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch admin information');
+    return res.json();
+  },
+
+  /**
+   * Fetch dedicated Resident User profile, household link, and safety status
+   */
+  async getUserInfo(email?: string) {
+    const query = email ? `?email=${encodeURIComponent(email)}` : '';
+    const res = await fetch(`${API_BASE_URL}/user${query}`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch user information');
+    return res.json();
+  },
+
   async logout(): Promise<void> {
     try {
       await fetch(`${API_BASE_URL}/auth/logout`, {
@@ -372,7 +392,8 @@ export const laravelApi = {
     status: string,
     statusNote?: string,
     evacuationCenterId?: string,
-    officerInfo?: { name?: string; role?: string }
+    officerInfo?: { name?: string; role?: string },
+    verificationStatus?: 'Pending' | 'Verified'
   ): Promise<Household> {
     const res = await fetch(`${API_BASE_URL}/households/${encodeURIComponent(id)}/status`, {
       method: 'PATCH',
@@ -381,6 +402,7 @@ export const laravelApi = {
         status,
         statusNote,
         evacuationCenterId,
+        verificationStatus: verificationStatus || (status === 'SAFE' ? 'Verified' : undefined),
         officerName: officerInfo?.name,
         officerRole: officerInfo?.role,
       }),

@@ -111,7 +111,7 @@ export const OfficialLoginForm: React.FC<OfficialLoginFormProps> = ({
       return;
     }
 
-    const cleanUsername = username.trim();
+    const cleanUsername = username.trim().replace(/^@/, "");
     const cleanPassword = password.trim();
 
     if (!cleanUsername || !cleanPassword) {
@@ -124,25 +124,56 @@ export const OfficialLoginForm: React.FC<OfficialLoginFormProps> = ({
     try {
       // Authenticate through Laravel API backend against PostgreSQL database
       let authenticatedAccount: OfficialAccount | null = null;
+      let isBackendReachable = false;
 
       try {
         const res = await laravelApi.login({
           username: cleanUsername,
           password: cleanPassword,
         });
+        isBackendReachable = true;
         if (res && res.success && res.official) {
           authenticatedAccount = {
             username: res.official.username,
-            passwordHash: '', // Password is never kept in frontend state
+            passwordHash: "", // Password is never kept in frontend state
             barangay: res.official.barangay,
             officialName: res.official.officialName,
             position: res.official.position,
-            phone: res.official.phone || '',
+            phone: res.official.phone || "",
           };
         }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Invalid credentials';
-        console.warn('Backend authentication failed:', msg);
+        const msg = err instanceof Error ? err.message : "Invalid credentials";
+        // If backend explicitly rejected the credentials, the server is online and active
+        if (msg && !msg.toLowerCase().includes("failed to fetch") && !msg.toLowerCase().includes("network")) {
+          isBackendReachable = true;
+        }
+        console.warn("Backend authentication response:", msg);
+      }
+
+      // Offline / Unreachable backend fallback ONLY (never overrides backend credential rejection)
+      if (!authenticatedAccount && !isBackendReachable) {
+        if (officialAccounts) {
+          const matched = Object.values(officialAccounts).find(
+            (acc) =>
+              acc &&
+              (acc.username.toLowerCase() === cleanUsername.toLowerCase() ||
+                acc.username.toLowerCase().replace(/^@/, "") === cleanUsername.toLowerCase())
+          );
+          if (matched && matched.passwordHash && matched.passwordHash !== "••••••••") {
+            if (matched.passwordHash === cleanPassword) {
+              authenticatedAccount = {
+                username: matched.username,
+                passwordHash: "",
+                barangay: matched.barangay,
+                officialName: matched.officialName,
+                position: matched.position,
+                phone: matched.phone || "",
+                email: matched.email || "",
+              };
+            }
+          }
+        }
       }
 
       if (!authenticatedAccount) {
@@ -243,6 +274,19 @@ export const OfficialLoginForm: React.FC<OfficialLoginFormProps> = ({
                 <p className="text-[11px] font-semibold text-red-900 mt-1">
                   5 consecutive failed login attempts detected. Access is locked for 10 minutes to protect official accounts from brute force attacks.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.removeItem(OFFICIAL_LOCKOUT_UNTIL_KEY);
+                    localStorage.removeItem(OFFICIAL_FAILED_ATTEMPTS_KEY);
+                    setLockoutSeconds(0);
+                    setFailedAttempts(0);
+                    setError(null);
+                  }}
+                  className="mt-2 text-xs text-red-700 hover:text-red-900 underline font-semibold cursor-pointer block"
+                >
+                  Clear Lockout & Try Again
+                </button>
               </div>
             </div>
           )}

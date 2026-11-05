@@ -58,6 +58,60 @@ import {
 } from 'lucide-react';
 import { BackendHealthResponse } from '../utils/laravelApi';
 
+export const formatIncidentTime = (timestamp?: string): { relativeTime: string; clockTime: string } => {
+  if (!timestamp) return { relativeTime: 'Just now', clockTime: '' };
+
+  let date: Date;
+
+  if (timestamp.endsWith('Z') || timestamp.includes('+')) {
+    date = new Date(timestamp);
+  } else if (timestamp.includes('T') || timestamp.includes(' ')) {
+    const normalized = timestamp.replace(' ', 'T');
+    const localDate = new Date(normalized);
+    const utcDate = new Date(normalized + 'Z');
+    const now = Date.now();
+
+    // If treating as UTC is significantly closer to now than local (e.g. UTC string saved without Z),
+    // use UTC to correct the timezone offset
+    if (!isNaN(utcDate.getTime()) && Math.abs(now - utcDate.getTime()) < Math.abs(now - localDate.getTime())) {
+      date = utcDate;
+    } else {
+      date = localDate;
+    }
+  } else {
+    date = new Date(timestamp);
+  }
+
+  if (isNaN(date.getTime())) {
+    return {
+      relativeTime: 'Just now',
+      clockTime: timestamp.length >= 16 ? timestamp.substring(11, 16) : timestamp,
+    };
+  }
+
+  const now = Date.now();
+  const diffSec = Math.max(0, Math.floor((now - date.getTime()) / 1000));
+
+  let relativeTime = 'Just now';
+  if (diffSec < 45) {
+    relativeTime = 'Just now';
+  } else if (diffSec < 3600) {
+    relativeTime = `${Math.floor(diffSec / 60)}m ago`;
+  } else if (diffSec < 86400) {
+    relativeTime = `${Math.floor(diffSec / 3600)}h ago`;
+  } else {
+    relativeTime = `${Math.floor(diffSec / 86400)}d ago`;
+  }
+
+  const clockTime = date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  return { relativeTime, clockTime };
+};
+
 interface BarangayDashboardProps {
   currentBarangay: BarangayName;
   officialAccount: OfficialAccount;
@@ -81,6 +135,7 @@ interface BarangayDashboardProps {
   onDeleteHousehold: (householdId: string) => void;
   onAddNewHousehold: () => void;
   onBroadcastMustEvacuate?: () => void;
+  onSafeAllHouseholds?: () => void;
   onEditHousehold: (household: Household) => void;
   onSelectHouseholdDetails: (household: Household) => void;
   onOpenPrintModal: () => void;
@@ -91,6 +146,7 @@ interface BarangayDashboardProps {
   onOpenCreateAccountModal?: () => void;
   onOpenManageAccountModal?: () => void;
   onMarkNotificationRead: (id: string) => void;
+  onMarkAllNotificationsRead: () => void;
   onClearAllNotifications: () => void;
   onLogout: () => void;
   isDarkMode?: boolean;
@@ -120,6 +176,7 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
   onDeleteHousehold,
   onAddNewHousehold,
   onBroadcastMustEvacuate,
+  onSafeAllHouseholds,
   onEditHousehold,
   onSelectHouseholdDetails,
   onOpenPrintModal,
@@ -130,6 +187,7 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
   onOpenCreateAccountModal,
   onOpenManageAccountModal,
   onMarkNotificationRead,
+  onMarkAllNotificationsRead,
   onClearAllNotifications,
   onLogout,
   isDarkMode: propIsDarkMode,
@@ -426,7 +484,32 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
   }, [reliefRecords, currentBarangay]);
 
   const barangayNotifications = useMemo(() => {
-    return notifications.filter((n) => n.barangay === currentBarangay);
+    const raw = notifications.filter((n) => n.barangay === currentBarangay);
+    const seenHouseholds = new Set<string>();
+    const seenMessages = new Set<string>();
+    const deduplicated: NotificationItem[] = [];
+
+    for (const n of raw) {
+      // 1. If notification belongs to a specific household, only keep the LATEST status/alert for that household
+      // so a single resident never has double or conflicting entries in the stream
+      if (n.householdId) {
+        if (seenHouseholds.has(n.householdId)) {
+          continue;
+        }
+        seenHouseholds.add(n.householdId);
+      } else {
+        // 2. Broadcast / system messages: deduplicate identical messages
+        const normMsg = n.message.trim().toLowerCase();
+        if (seenMessages.has(normMsg)) {
+          continue;
+        }
+        seenMessages.add(normMsg);
+      }
+
+      deduplicated.push(n);
+    }
+
+    return deduplicated;
   }, [notifications, currentBarangay]);
 
   const unreadNotifCount = barangayNotifications.filter((n) => !n.read).length;
@@ -721,6 +804,15 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
                 <span>Live Console</span>
               </span>
 
+              {/* Resident Live Auto-Sync Status Indicator */}
+              <span
+                title="Resident status clicks ('Safe', 'Need Evacuate', 'Evacuated') automatically synchronize to this console in real time."
+                className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider hidden md:inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 select-none"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
+                <span>Resident Auto-Sync</span>
+              </span>
+
               {/* PostgreSQL Automatic Save Indicator */}
               <div
                 title={
@@ -796,7 +888,11 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
               <button
                 type="button"
                 id="btn-hd-notifications"
-                onClick={() => setShowNotifications(!showNotifications)}
+                onClick={() => {
+                  const opening = !showNotifications;
+                  setShowNotifications(opening);
+                  if (opening) onMarkAllNotificationsRead();
+                }}
                 className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full transition relative cursor-pointer"
               >
                 <Bell className="w-4 h-4" />
@@ -850,7 +946,11 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
                           <div className="flex-1">
                             <div className="font-bold text-slate-900">{n.title}</div>
                             <div className="text-slate-600 text-[11px] mt-0.5">{n.message}</div>
-                            <div className="text-[10px] text-slate-400 font-mono mt-1">{n.timestamp}</div>
+                            <div className="text-[10px] text-slate-400 font-mono mt-1 flex items-center gap-1.5">
+                              <span>{formatIncidentTime(n.timestamp).relativeTime}</span>
+                              <span>•</span>
+                              <span>{formatIncidentTime(n.timestamp).clockTime}</span>
+                            </div>
                           </div>
                         </div>
                       ))
@@ -1133,16 +1233,16 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
 
                               <td className="px-3 py-2.5">
                                 {isEmergency ? (
-                                  <span className="px-2 py-0.5 bg-red-600 text-white rounded text-[10px] font-bold uppercase tracking-wider inline-block shadow-2xs">
-                                    Need evacuate
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-red-600 text-white inline-block shadow-2xs">
+                                    NEED EVACUATE
                                   </span>
                                 ) : isModerate ? (
-                                  <span className="px-2 py-0.5 bg-amber-500 text-white rounded text-[10px] font-bold uppercase tracking-wider inline-block shadow-2xs">
-                                    Moderate
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-amber-500 text-white inline-block shadow-2xs">
+                                    MODERATE
                                   </span>
                                 ) : (
-                                  <span className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[10px] font-bold uppercase tracking-wider inline-block shadow-2xs">
-                                    Safe
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-emerald-600 text-white inline-block shadow-2xs">
+                                    SAFE
                                   </span>
                                 )}
                               </td>
@@ -1187,19 +1287,12 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
                                   id={`btn-household-safe-${hh.id}`}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    onUpdateHouseholdStatus(
-                                      hh.id,
-                                      'SAFE',
-                                      'Marked Safe by Barangay DRRM Official'
-                                    );
-                                    if (hh.verificationStatus !== 'Verified') {
-                                      onToggleVerification(hh.id);
-                                    }
+                                    onUpdateHouseholdStatus(hh.id, 'SAFE', 'Marked Safe by Barangay DRRM Official');
                                   }}
                                   className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 mx-auto cursor-pointer shadow-2xs ${
                                     hh.status === 'SAFE'
                                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30'
-                                      : 'bg-emerald-100 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-300'
+                                      : 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-500/50 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-600 dark:hover:text-white'
                                   }`}
                                   title="Click to mark this household as Safe"
                                 >
@@ -1323,11 +1416,16 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
               </div>
 
               {/* Live Notifications Feed */}
-              <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 flex flex-col">
+              <div className="bg-white dark:bg-slate-900/90 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 p-4 flex flex-col">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Bell className="w-3.5 h-3.5 text-blue-600" />
+                  <h3 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Bell className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                     <span>Live Incident Stream</span>
+                    {barangayNotifications.length > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                        {barangayNotifications.length}
+                      </span>
+                    )}
                   </h3>
                   <div className="flex items-center gap-2">
                     <button
@@ -1335,13 +1433,17 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
                       id="btn-clear-incident-stream"
                       onClick={onClearAllNotifications}
                       disabled={barangayNotifications.length === 0}
-                      className="text-[11px] font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 px-2 py-0.5 rounded border border-slate-200 hover:border-red-200 transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:hover:border-slate-200 flex items-center gap-1"
+                      className="text-[11px] font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:border-red-200 dark:hover:border-red-800 transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:hover:border-slate-200 flex items-center gap-1"
                       title={barangayNotifications.length === 0 ? 'No alerts to clear' : 'Clear all alerts in stream'}
                     >
                       <Trash2 className="w-3 h-3" />
                       <span>Clear</span>
                     </button>
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                    {barangayNotifications.some((n) => n.type === 'emergency') ? (
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" title="Active emergency alerts" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Live stream connected" />
+                    )}
                   </div>
                 </div>
 
@@ -1354,6 +1456,60 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
                     barangayNotifications.slice(0, 4).map((n) => {
                       const isEmergency = n.type === 'emergency';
                       const isModerate = n.type === 'moderate';
+                      const isSafe = n.type === 'safe';
+                      const text = (n.title + ' ' + n.message).toLowerCase();
+                      const targetHH = n.householdId ? households.find((h) => h.id === n.householdId) : undefined;
+
+                      let category = 'DATA UPDATE';
+                      let badgeClasses = 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+                      let cardClasses = 'bg-blue-50/70 dark:bg-blue-950/40 border-l-4 border-blue-500 hover:bg-blue-100/60 dark:hover:bg-blue-950/60';
+                      let messageClasses = 'text-blue-950 dark:text-blue-100';
+                      let dotColor = 'bg-blue-500';
+
+                      if (isEmergency) {
+                        if (text.includes('mandatory') || text.includes('order') || text.includes('directive') || !n.householdId) {
+                          category = 'MANDATORY EVACUATION DIRECTIVE';
+                        } else {
+                          category = 'CRITICAL ALERT • NEED EVACUATE';
+                        }
+                        badgeClasses = 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300 border-red-200 dark:border-red-800 animate-pulse';
+                        cardClasses = 'bg-red-50/80 dark:bg-red-950/50 border-l-4 border-red-500 hover:bg-red-100/70 dark:hover:bg-red-950/70';
+                        messageClasses = 'text-red-950 dark:text-red-100';
+                        dotColor = 'bg-red-500';
+                      } else if (isSafe) {
+                        category = 'VERIFIED SAFE • AT HOME';
+                        badgeClasses = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+                        cardClasses = 'bg-emerald-50/80 dark:bg-emerald-950/40 border-l-4 border-emerald-500 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/60';
+                        messageClasses = 'text-emerald-950 dark:text-emerald-100';
+                        dotColor = 'bg-emerald-500';
+                      } else if (isModerate) {
+                        category = 'MODERATE ALERT • EVACUATED';
+                        badgeClasses = 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+                        cardClasses = 'bg-amber-50/80 dark:bg-amber-950/40 border-l-4 border-amber-500 hover:bg-amber-100/70 dark:hover:bg-amber-950/60';
+                        messageClasses = 'text-amber-950 dark:text-amber-100';
+                        dotColor = 'bg-amber-500';
+                      } else if (text.includes('relief') || text.includes('food pack') || text.includes('pack')) {
+                        category = 'RELIEF GOODS DISPATCH';
+                        badgeClasses = 'bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 border-purple-200 dark:border-purple-800';
+                        cardClasses = 'bg-purple-50/70 dark:bg-purple-950/40 border-l-4 border-purple-500 hover:bg-purple-100/60 dark:hover:bg-purple-950/60';
+                        messageClasses = 'text-purple-950 dark:text-purple-100';
+                        dotColor = 'bg-purple-500';
+                      } else if (text.includes('register') || text.includes('submission') || text.includes('new household')) {
+                        category = 'NEW RESIDENT REGISTRATION';
+                        badgeClasses = 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/60 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800';
+                        cardClasses = 'bg-cyan-50/70 dark:bg-cyan-950/40 border-l-4 border-cyan-500 hover:bg-cyan-100/60 dark:hover:bg-cyan-950/60';
+                        messageClasses = 'text-cyan-950 dark:text-cyan-100';
+                        dotColor = 'bg-cyan-500';
+                      } else if (text.includes('assigned') || text.includes('center') || text.includes('shelter')) {
+                        category = 'EVACUATION SHELTER ASSIGNMENT';
+                        badgeClasses = 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800';
+                        cardClasses = 'bg-indigo-50/70 dark:bg-indigo-950/40 border-l-4 border-indigo-500 hover:bg-indigo-100/60 dark:hover:bg-indigo-950/60';
+                        messageClasses = 'text-indigo-950 dark:text-indigo-100';
+                        dotColor = 'bg-indigo-500';
+                      }
+
+                      // Dynamic relative time formatting with accurate local timezone correction
+                      const { relativeTime, clockTime } = formatIncidentTime(n.timestamp);
 
                       return (
                         <div
@@ -1365,39 +1521,29 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
                               if (target) onSelectHouseholdDetails(target);
                             }
                           }}
-                          className={`p-2.5 rounded text-xs transition cursor-pointer ${
-                            isEmergency
-                              ? 'bg-red-50 border-l-4 border-red-500'
-                              : isModerate
-                              ? 'bg-amber-50 border-l-4 border-amber-500'
-                              : 'bg-blue-50 border-l-4 border-blue-500'
-                          }`}
+                          className={`p-2.5 rounded-lg text-xs transition cursor-pointer shadow-2xs border ${cardClasses}`}
+                          title={n.householdId ? 'Click to inspect household details' : 'Click to mark as read'}
                         >
-                          <div className="flex items-center justify-between">
-                            <p
-                              className={`text-[11px] font-bold ${
-                                isEmergency
-                                  ? 'text-red-700'
-                                  : isModerate
-                                  ? 'text-amber-800'
-                                  : 'text-blue-700'
-                              }`}
-                            >
-                              {isEmergency ? 'CRITICAL ALERT' : isModerate ? 'MODERATE ALERT' : 'DATA UPDATE'}
-                            </p>
-                            <span className="text-[9px] text-slate-400 font-mono">
-                              {n.timestamp.substring(11, 16)}
-                            </span>
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor} ${!n.read ? 'animate-ping' : ''}`} />
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider shrink-0 border ${badgeClasses}`}>
+                                {category}
+                              </span>
+                              {targetHH && (
+                                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 truncate hidden sm:inline">
+                                  {targetHH.purok}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                              <Clock className="w-2.5 h-2.5 opacity-60" />
+                              <span className="font-semibold">{relativeTime}</span>
+                              <span className="opacity-50 hidden sm:inline">({clockTime})</span>
+                            </div>
                           </div>
-                          <p
-                            className={`text-[11px] mt-0.5 ${
-                              isEmergency
-                                ? 'text-red-900'
-                                : isModerate
-                                ? 'text-amber-950'
-                                : 'text-blue-900'
-                            }`}
-                          >
+
+                          <p className={`text-[11px] mt-1.5 font-medium leading-relaxed ${messageClasses}`}>
                             {n.message}
                           </p>
                         </div>

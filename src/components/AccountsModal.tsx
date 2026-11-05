@@ -20,7 +20,10 @@ export const AccountsModal: React.FC<AccountsModalProps> = ({
   onOpenManageAccount,
   onClose,
 }) => {
-  const allAccounts = Object.values(officialAccounts || {}) as OfficialAccount[];
+  const rawAccounts = Object.values(officialAccounts || {}) as OfficialAccount[];
+  const allAccounts = Array.from(
+    new Map(rawAccounts.map((a) => [(a.username || '').toLowerCase().trim(), a])).values()
+  );
   const buangAcc = (officialAccounts && officialAccounts.Buang) || allAccounts.find((a) => a.barangay === 'Buang');
   const nagsipitAcc = (officialAccounts && officialAccounts.Nagsipit) || allAccounts.find((a) => a.barangay === 'Nagsipit');
 

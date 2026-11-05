@@ -283,52 +283,8 @@ export const INITIAL_RELIEF: ReliefDistribution[] = [
   },
 ];
 
-export const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: 'notif-1',
-    title: '🚨 MUST EVACUATE Alert: Pedro M. Penduko',
-    message: 'Pedro M. Penduko (Purok 1, Brgy. Buang): "River floodwater rising rapidly to waist level! Urgent rescue & evacuation required."',
-    barangay: 'Buang',
-    type: 'emergency',
-    timestamp: '2026-09-21 08:30:00',
-    read: false,
-    householdId: 'hh-buang-1',
-    householdName: 'Pedro M. Penduko',
-  },
-  {
-    id: 'notif-2',
-    title: '🚨 MUST EVACUATE Alert: Maria Elena C. Santos',
-    message: 'Maria Elena C. Santos (Purok 5, Brgy. Buang): "Soil displacement & minor rockfall behind our house! Needs emergency vehicle."',
-    barangay: 'Buang',
-    type: 'emergency',
-    timestamp: '2026-09-21 08:45:00',
-    read: false,
-    householdId: 'hh-buang-2',
-    householdName: 'Maria Elena C. Santos',
-  },
-  {
-    id: 'notif-3',
-    title: '⚠️ MODERATE ALERT: Juan Dela Cruz',
-    message: 'Juan Dela Cruz (Purok 3, Brgy. Buang): "Water entering front yard. Need assistance transporting bedridden grandfather."',
-    barangay: 'Buang',
-    type: 'moderate',
-    timestamp: '2026-09-21 07:15:00',
-    read: false,
-    householdId: 'hh-buang-3',
-    householdName: 'Juan Dela Cruz',
-  },
-  {
-    id: 'notif-4',
-    title: '🚨 MUST EVACUATE Alert: Danilo C. Flores',
-    message: 'Danilo C. Flores (Purok 1, Brgy. Nagsipit): "Rapid creek overflow! Water entered bedrooms, seeking immediate rescue team."',
-    barangay: 'Nagsipit',
-    type: 'emergency',
-    timestamp: '2026-09-21 08:20:00',
-    read: false,
-    householdId: 'hh-nagsipit-1',
-    householdName: 'Danilo C. Flores',
-  },
-];
+// Dynamic Live Incident Stream - populated in real-time from active households and broadcasts
+export const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
 
 export const INITIAL_AUDIT_LOGS: AuditLogEntry[] = [
   {
