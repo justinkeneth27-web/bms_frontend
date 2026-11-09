@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarangayName } from '../types';
+import { BarangayName, OfficialAccount } from '../types';
 import { laravelApi } from '../utils/laravelApi';
 import {
   Shield,
@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   KeyRound,
   Eye,
   EyeOff,
@@ -19,12 +20,14 @@ import {
 
 interface ResetPasswordViewProps {
   initialUsername?: string;
+  officialAccounts?: Record<string, OfficialAccount>;
   onResetSuccess: (username: string, newPassword: string) => void;
   onBackToLogin: () => void;
 }
 
 export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
   initialUsername = '',
+  officialAccounts = {},
   onResetSuccess,
   onBackToLogin,
 }) => {
@@ -67,18 +70,28 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
   const handleLookup = async (uname: string) => {
     setIsLoading(true);
     setError(null);
+
+    const cleanUname = uname.trim().toLowerCase();
+    const cleanNoDots = cleanUname.replace(/\./g, '');
+    const matchedLocal = Object.values(officialAccounts || {}).find((a) => {
+      const u = a.username.toLowerCase();
+      return u === cleanUname || u.replace(/\./g, '') === cleanNoDots;
+    });
+
     try {
       const res = await laravelApi.lookupOfficial(uname);
       if (res) {
         setBarangay(res.barangay);
         const resolvedName =
           res.officialName ||
-          (res.barangay === 'Buang' ? 'Hon. Rolando M. Santos' : 'Hon. Cynthia P. Ramos');
-        const resolvedPos = res.position || 'Punong Barangay / DRRM Chief';
+          matchedLocal?.officialName ||
+          (res.barangay === 'Buang' ? 'Hon. Jose Hernandez' : 'Hon. Cynthia P. Ramos');
+        const resolvedPos = res.position || matchedLocal?.position || 'Punong Barangay / DRRM Chief';
         setOfficialName(resolvedName);
         setPosition(resolvedPos);
 
         const resolvedEmail =
+          matchedLocal?.email ||
           res.email ||
           (res.barangay === 'Buang'
             ? 'buangg2026@gmail.com'
@@ -94,10 +107,26 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
         setStep(2);
       }
     } catch (err: unknown) {
+      if (matchedLocal) {
+        setBarangay(matchedLocal.barangay);
+        setOfficialName(matchedLocal.officialName);
+        setPosition(matchedLocal.position);
+        setExpectedEmail(
+          matchedLocal.email ||
+          (matchedLocal.barangay === 'Buang' ? 'buangg2026@gmail.com' : 'nagsipit2026@gmail.com')
+        );
+        setMaskedEmail('');
+        setEmailInput('');
+        setConfirmEmailInput('');
+        setOtpCode('');
+        setOtpSent(false);
+        setStep(2);
+        return;
+      }
       const lower = uname.toLowerCase();
       if (lower.includes('buang')) {
         setBarangay('Buang');
-        setOfficialName('Hon. Rolando M. Santos');
+        setOfficialName('Hon. Jose Hernandez');
         setPosition('Punong Barangay / DRRM Chief');
         setExpectedEmail('buangg2026@gmail.com');
         setMaskedEmail('b********6@gmail.com');
@@ -136,7 +165,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
     await handleLookup(username.trim());
   };
 
-  // Step 2: Save & Link Gmail and dispatch 6-digit OTP code
+  // Step 2: Input or Enter Recovery Gmail and dispatch 6-digit OTP code
   const handleSaveAndLinkGmail = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError(null);
@@ -146,7 +175,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
     const confirmEmail = confirmEmailInput.trim().toLowerCase();
 
     if (!email) {
-      setError('Please enter your official recovery Gmail address.');
+      setError('Please enter your recovery Gmail address.');
       return;
     }
 
@@ -165,14 +194,21 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
       setError('Gmail addresses do not match. Please re-enter.');
       return;
     }
-    setIsLoading(true);
+
+    // Enforce that only what is defined in the official Gmail address will work
+    const cleanExpected = (expectedEmail || '').trim().toLowerCase();
+    if (cleanExpected && email !== cleanExpected) {
+      setError('The Gmail address entered does not match the official recovery Gmail address defined for this account.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       const res = await laravelApi.sendResetOtp({
         username: username.trim() || 'Buangadmin.gov',
         email: email,
-        linkEmail: true,
+        linkEmail: false,
       });
 
       setOtpSent(true);
@@ -183,7 +219,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
       );
     } catch (err: unknown) {
       setOtpNotice(null);
-      const msg = err instanceof Error ? err.message : 'Failed to save recovery Gmail and send OTP.';
+      const msg = err instanceof Error ? err.message : 'Failed to verify recovery Gmail and send OTP.';
       setError(msg);
     } finally {
       setIsLoading(false);
@@ -346,7 +382,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
         </div>
       )}
 
-      {/* STEP 2: Link Official Recovery Gmail (EXACT MATCH TO DESIGN) */}
+      {/* STEP 2: Enter Recovery Gmail (EXACT MATCH TO DESIGN) */}
       {step === 2 && !otpSent && (
         <div className="max-w-xl w-full bg-white rounded-2xl shadow-2xl border border-slate-200/80 overflow-hidden">
           {/* Top Multi-color Gradient Accent Line */}
@@ -361,10 +397,10 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
                 </div>
                 <div className="space-y-0.5">
                   <div className="text-[11px] font-bold text-blue-600 uppercase tracking-wider font-sans">
-                    FIRST-TIME SECURITY REQUIREMENT
+                    ACCOUNT RECOVERY VERIFICATION
                   </div>
                   <h2 className="text-xl sm:text-[22px] font-bold text-slate-900 tracking-tight leading-snug">
-                    Link Official Recovery Gmail
+                    Enter Recovery Gmail
                   </h2>
                 </div>
               </div>
@@ -385,7 +421,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
               <strong className="font-bold text-slate-900">{officialName}</strong> ({position}). To activate{' '}
               <strong className="font-bold text-slate-900">6-Digit OTP Password Recovery</strong> and secure your
               jurisdiction account (<strong className="font-bold text-slate-900">@{formattedUsername}</strong>), please
-              link your official recovery Gmail address below.
+              enter your recovery Gmail address below.
             </p>
 
             {/* Error Message */}
@@ -398,10 +434,10 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
 
             {/* Form */}
             <form onSubmit={handleSaveAndLinkGmail} className="space-y-4">
-              {/* Field 1: Recovery Gmail Address */}
+              {/* Field 1: Enter Recovery Gmail */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-800">
-                  Recovery Gmail Address <span className="text-red-500">*</span>
+                  Enter Recovery Gmail <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -468,10 +504,10 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({
                 <button
                   type="submit"
                   disabled={isLoading || !emailInput.trim() || !confirmEmailInput.trim()}
-                  className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 transition shadow-sm hover:shadow flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 transition shadow-sm hover:shadow flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-white" />
-                  <span>{isLoading ? 'Saving & Linking...' : 'Save & Link Gmail'}</span>
+                  <span>{isLoading ? 'Verifying...' : 'Next'}</span>
+                  <ArrowRight className="w-4 h-4 text-white" />
                 </button>
               </div>
             </form>

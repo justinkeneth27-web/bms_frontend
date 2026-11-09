@@ -274,19 +274,6 @@ export const OfficialLoginForm: React.FC<OfficialLoginFormProps> = ({
                 <p className="text-[11px] font-semibold text-red-900 mt-1">
                   5 consecutive failed login attempts detected. Access is locked for 10 minutes to protect official accounts from brute force attacks.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    localStorage.removeItem(OFFICIAL_LOCKOUT_UNTIL_KEY);
-                    localStorage.removeItem(OFFICIAL_FAILED_ATTEMPTS_KEY);
-                    setLockoutSeconds(0);
-                    setFailedAttempts(0);
-                    setError(null);
-                  }}
-                  className="mt-2 text-xs text-red-700 hover:text-red-900 underline font-semibold cursor-pointer block"
-                >
-                  Clear Lockout & Try Again
-                </button>
               </div>
             </div>
           )}
@@ -395,7 +382,7 @@ export const OfficialLoginForm: React.FC<OfficialLoginFormProps> = ({
               ) : isSubmitting ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Authenticating...</span>
+                  <span>Logging in...</span>
                 </>
               ) : (
                 <>

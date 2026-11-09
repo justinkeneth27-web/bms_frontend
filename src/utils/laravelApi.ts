@@ -237,7 +237,7 @@ export const laravelApi = {
       headers: getHeaders(),
       body: JSON.stringify({
         ...payload,
-        link_email: payload.linkEmail ?? payload.link_email ?? true,
+        link_email: payload.linkEmail ?? payload.link_email ?? false,
       }),
     });
     const data = await res.json();

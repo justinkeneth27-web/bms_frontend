@@ -984,6 +984,7 @@ export default function App() {
     try {
       sessionStorage.setItem('brgy_official_session_active', 'true');
       sessionStorage.setItem('brgy_official_session_account', JSON.stringify(account));
+      sessionStorage.setItem('brgy_last_active_time', Date.now().toString());
     } catch (e) {
       console.warn('Session save error:', e);
     }
@@ -1009,6 +1010,164 @@ export default function App() {
     }
     if (soundEnabled) playNotificationSound('info');
   };
+
+  // Official Logout Handler
+  const handleOfficialLogout = useCallback(
+    (isAutoLogout = false) => {
+      isOfficialLoggedInRef.current = false;
+      setIsOfficialLoggedIn(false);
+      try {
+        sessionStorage.removeItem('brgy_official_session_active');
+        sessionStorage.removeItem('brgy_official_session_account');
+        sessionStorage.removeItem('brgy_last_active_time');
+      } catch {
+        // ignore
+      }
+      setRedirectAfterLogin(null);
+      setShowAccountsModal(false);
+      setShowCreateAccountModal(false);
+      setShowManageAccountModal(false);
+      setShowLogsModal(false);
+      setShowPrintModal(false);
+      setShowCentersModal(false);
+      setShowReliefModal(false);
+      setSelectedDetailsHousehold(null);
+      setEditingHousehold(null);
+
+      if (isAutoLogout) {
+        setAuthSecurityNotice(
+          '⏱️ Session Expired: You were automatically logged out due to 15 minutes of inactivity to protect official data.'
+        );
+        addAuditLog({
+          actionType: 'LOGOUT',
+          actorName: currentOfficial.officialName || 'Barangay Official',
+          actorRole: currentOfficial.position || 'Official',
+          barangay: currentBarangay,
+          target: 'Official Command Session',
+          details: `Official session automatically logged out after 15 minutes of system inactivity.`,
+        });
+        if (soundEnabled) playNotificationSound('moderate');
+      } else {
+        setAuthSecurityNotice(null);
+        addAuditLog({
+          actionType: 'LOGOUT',
+          actorName: currentOfficial.officialName,
+          actorRole: currentOfficial.position,
+          barangay: currentBarangay,
+          target: 'Official Command Session',
+          details: `Official logged out of Barangay ${currentBarangay} console.`,
+        });
+      }
+      navigateTo('official-login');
+    },
+    [currentOfficial, currentBarangay, soundEnabled, addAuditLog]
+  );
+
+  // Resident Logout Handler
+  const handleResidentLogout = useCallback((_isAutoLogout = false) => {
+    isResidentLoggedInRef.current = false;
+    setIsResidentLoggedIn(false);
+    try {
+      sessionStorage.removeItem('brgy_resident_session_active');
+      sessionStorage.removeItem('brgy_resident_session_id');
+      sessionStorage.removeItem('brgy_last_active_time');
+    } catch {
+      // ignore
+    }
+    navigateTo('resident-login');
+  }, []);
+
+  // 15-minute system inactivity auto-logout (15 minutes = 900,000 ms)
+  const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
+  const lastActivityRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    if (!isOfficialLoggedIn && !isResidentLoggedIn) {
+      return;
+    }
+
+    lastActivityRef.current = Date.now();
+    try {
+      sessionStorage.setItem('brgy_last_active_time', Date.now().toString());
+    } catch {
+      // ignore
+    }
+
+    let lastThrottle = 0;
+    const recordUserActivity = () => {
+      const now = Date.now();
+      // Throttle recording to once every 2 seconds to avoid CPU overhead
+      if (now - lastThrottle > 2000) {
+        lastThrottle = now;
+        lastActivityRef.current = now;
+        try {
+          sessionStorage.setItem('brgy_last_active_time', now.toString());
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    const checkInactivityTimeout = () => {
+      const now = Date.now();
+      let lastActive = lastActivityRef.current;
+      try {
+        const stored = sessionStorage.getItem('brgy_last_active_time');
+        if (stored) {
+          const parsed = parseInt(stored, 10);
+          if (!isNaN(parsed) && parsed > lastActive) {
+            lastActive = parsed;
+            lastActivityRef.current = parsed;
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      if (now - lastActive >= INACTIVITY_TIMEOUT_MS) {
+        if (isOfficialLoggedInRef.current) {
+          handleOfficialLogout(true);
+        } else if (isResidentLoggedInRef.current) {
+          handleResidentLogout(true);
+        }
+      }
+    };
+
+    const events: (keyof WindowEventMap)[] = [
+      'mousedown',
+      'mousemove',
+      'keydown',
+      'scroll',
+      'touchstart',
+      'click',
+      'wheel',
+    ];
+
+    events.forEach((evt) => {
+      window.addEventListener(evt, recordUserActivity, { passive: true });
+    });
+
+    // Check periodically every 10 seconds
+    const timerId = window.setInterval(checkInactivityTimeout, 10000);
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        checkInactivityTimeout();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    return () => {
+      events.forEach((evt) => {
+        window.removeEventListener(evt, recordUserActivity);
+      });
+      window.clearInterval(timerId);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, [isOfficialLoggedIn, isResidentLoggedIn, handleOfficialLogout, handleResidentLogout]);
 
   // Handlers for Password Reset via Security Questions
   const handleResetOfficialPassword = (username: string, newPassword: string) => {
@@ -2066,6 +2225,7 @@ export default function App() {
         {currentView === 'reset-password' && (
           <ResetPasswordView
             initialUsername={recoveryUsername}
+            officialAccounts={officialAccounts}
             onResetSuccess={handleResetOfficialPassword}
             onBackToLogin={() => navigateTo('official-login')}
           />
@@ -2137,27 +2297,7 @@ export default function App() {
                   prev.filter((n) => n.barangay !== currentBarangay)
                 );
               }}
-              onLogout={() => {
-                isOfficialLoggedInRef.current = false;
-                setIsOfficialLoggedIn(false);
-                try {
-                  sessionStorage.removeItem('brgy_official_session_active');
-                  sessionStorage.removeItem('brgy_official_session_account');
-                } catch {
-                  // ignore
-                }
-                setAuthSecurityNotice(null);
-                setRedirectAfterLogin(null);
-                addAuditLog({
-                  actionType: 'LOGOUT',
-                  actorName: currentOfficial.officialName,
-                  actorRole: currentOfficial.position,
-                  barangay: currentBarangay,
-                  target: 'Official Command Session',
-                  details: `Official logged out of Barangay ${currentBarangay} console.`,
-                });
-                navigateTo('official-login');
-              }}
+              onLogout={() => handleOfficialLogout(false)}
             />
           ) : (
             <OfficialLoginForm
@@ -2232,17 +2372,7 @@ export default function App() {
               assignedCenter={assignedCenter}
               allCenters={centers}
               onUpdateStatus={handleUpdateHouseholdStatus}
-              onLogout={() => {
-                isResidentLoggedInRef.current = false;
-                setIsResidentLoggedIn(false);
-                try {
-                  sessionStorage.removeItem('brgy_resident_session_active');
-                  sessionStorage.removeItem('brgy_resident_session_id');
-                } catch {
-                  // ignore
-                }
-                navigateTo('resident-login');
-              }}
+              onLogout={() => handleResidentLogout(false)}
             />
           ) : (
             <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
@@ -2320,20 +2450,7 @@ export default function App() {
                 setEditingHousehold(null);
                 navigateTo('barangay-dashboard');
               }}
-              onLogout={() => {
-                isOfficialLoggedInRef.current = false;
-                setIsOfficialLoggedIn(false);
-                try {
-                  sessionStorage.removeItem('brgy_official_session_active');
-                  sessionStorage.removeItem('brgy_official_session_account');
-                } catch {
-                  // ignore
-                }
-                setAuthSecurityNotice(null);
-                setRedirectAfterLogin(null);
-                setEditingHousehold(null);
-                navigateTo('official-login');
-              }}
+              onLogout={() => handleOfficialLogout(false)}
               onSwitchToOfficial={() => navigateTo('official-login')}
             />
           )
