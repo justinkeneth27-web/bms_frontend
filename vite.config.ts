@@ -13,6 +13,7 @@ export default defineConfig(() => {
     },
     server: {
       port: 3000,
+      allowedHosts: ['barangay-monitoring-system.duckdns.org', '.duckdns.org'],
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:8000',
@@ -28,6 +29,7 @@ export default defineConfig(() => {
     },
     preview: {
       port: 3000,
+      allowedHosts: ['barangay-monitoring-system.duckdns.org', '.duckdns.org'],
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:8000',
