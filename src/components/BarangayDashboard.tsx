@@ -144,6 +144,7 @@ interface BarangayDashboardProps {
   onOpenAccountsModal: () => void;
   onOpenLogsModal: () => void;
   onOpenCreateAccountModal?: () => void;
+  onOpenProgramFlowModal?: () => void;
   onOpenManageAccountModal?: () => void;
   onMarkNotificationRead: (id: string) => void;
   onMarkAllNotificationsRead: () => void;
@@ -185,6 +186,7 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
   onOpenAccountsModal,
   onOpenLogsModal,
   onOpenCreateAccountModal,
+  onOpenProgramFlowModal,
   onOpenManageAccountModal,
   onMarkNotificationRead,
   onMarkAllNotificationsRead,
@@ -692,6 +694,18 @@ export const BarangayDashboard: React.FC<BarangayDashboardProps> = ({
             <span>Create Account</span>
           </button>
         )}
+
+        <button
+          type="button"
+          id="btn-sidebar-program-flow"
+          onClick={() => {
+            onOpenProgramFlowModal?.();
+          }}
+          className="w-full flex items-center space-x-2.5 px-3 py-2 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer group"
+        >
+          <FileText className="w-4 h-4 text-blue-400 group-hover:text-blue-300" />
+          <span>Program Flow</span>
+        </button>
 
         <button
           type="button"

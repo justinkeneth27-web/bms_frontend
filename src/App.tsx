@@ -38,6 +38,7 @@ import { ActivityLogsModal } from './components/ActivityLogsModal';
 import { ResetPasswordView } from './components/ResetPasswordView';
 import { CreateAccountModal } from './components/CreateAccountModal';
 import { ManageAccountsModal } from './components/ManageAccountsModal';
+import { ProgramFlowModal } from './components/ProgramFlowModal';
 import { Home } from 'lucide-react';
 
 // STORAGE_KEYS removed – data now persisted via Laravel API (Supabase)
@@ -280,6 +281,7 @@ export default function App() {
   const [showAccountsModal, setShowAccountsModal] = useState(false);
   const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
   const [showManageAccountModal, setShowManageAccountModal] = useState(false);
+  const [showProgramFlowModal, setShowProgramFlowModal] = useState(false);
   const [showLogsModal, setShowLogsModal] = useState(false);
   const [selectedDetailsHousehold, setSelectedDetailsHousehold] = useState<Household | null>(null);
   const [editingHousehold, setEditingHousehold] = useState<Household | null>(null);
@@ -1027,6 +1029,7 @@ export default function App() {
       setShowAccountsModal(false);
       setShowCreateAccountModal(false);
       setShowManageAccountModal(false);
+      setShowProgramFlowModal(false);
       setShowLogsModal(false);
       setShowPrintModal(false);
       setShowCentersModal(false);
@@ -2279,6 +2282,7 @@ export default function App() {
               onOpenAccountsModal={() => setShowAccountsModal(true)}
               onOpenLogsModal={() => setShowLogsModal(true)}
               onOpenCreateAccountModal={() => setShowCreateAccountModal(true)}
+              onOpenProgramFlowModal={() => setShowProgramFlowModal(true)}
               onOpenManageAccountModal={() => setShowManageAccountModal(true)}
               onMarkNotificationRead={(id) => {
                 setNotifications((prev) =>
@@ -2535,6 +2539,13 @@ export default function App() {
           onUpdateAccount={handleUpdateOfficialAccount}
           onDeleteAccount={handleDeleteOfficialAccount}
           onOpenCreateAccount={() => setShowCreateAccountModal(true)}
+        />
+      )}
+
+      {showProgramFlowModal && (
+        <ProgramFlowModal
+          isOpen={showProgramFlowModal}
+          onClose={() => setShowProgramFlowModal(false)}
         />
       )}
 
